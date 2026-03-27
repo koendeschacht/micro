@@ -911,6 +911,7 @@ func (h *BufPane) GotoCmd(args []string) {
 		InfoBar.Error(err)
 		return
 	}
+	h.PushJump()
 
 	if line < 0 {
 		line = h.Buf.LinesNum() + 1 + line

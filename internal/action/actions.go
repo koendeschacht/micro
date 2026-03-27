@@ -1204,6 +1204,7 @@ func (h *BufPane) FindNext() bool {
 	if h.Buf.LastSearch == "" {
 		return false
 	}
+	h.PushJump()
 	// If the cursor is at the start of a selection and we search we want
 	// to search from the end of the selection in the case that
 	// the selection is a search result in which case we wouldn't move at
@@ -1241,6 +1242,7 @@ func (h *BufPane) FindPrevious() bool {
 	if h.Buf.LastSearch == "" {
 		return false
 	}
+	h.PushJump()
 	// If the cursor is at the end of a selection and we search we want
 	// to search from the beginning of the selection in the case that
 	// the selection is a search result in which case we wouldn't move at
@@ -1750,6 +1752,7 @@ func (h *BufPane) SelectPageDown() bool {
 // CursorPageUp places the cursor a page up,
 // moving the view to keep cursor at the same relative position in the view
 func (h *BufPane) CursorPageUp() bool {
+	h.PushJump()
 	h.Cursor.Deselect(true)
 	pageOverlap := int(h.Buf.Settings["pageoverlap"].(float64))
 	scrollAmount := h.BufView().Height - pageOverlap
@@ -1764,6 +1767,7 @@ func (h *BufPane) CursorPageUp() bool {
 // CursorPageDown places the cursor a page down,
 // moving the view to keep cursor at the same relative position in the view
 func (h *BufPane) CursorPageDown() bool {
+	h.PushJump()
 	selectionEndNewline := h.Cursor.HasSelection() && h.Cursor.CurSelection[1].X == 0
 	h.Cursor.Deselect(false)
 	pageOverlap := int(h.Buf.Settings["pageoverlap"].(float64))

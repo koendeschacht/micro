@@ -51,6 +51,11 @@ func luaImportMicro() *lua.LTable {
 	ulua.L.SetField(pkg, "CurPane", luar.New(ulua.L, func() *action.BufPane {
 		return action.MainTab().CurPane()
 	}))
+	ulua.L.SetField(pkg, "PushJump", luar.New(ulua.L, func() {
+		if pane := action.MainTab().CurPane(); pane != nil {
+			pane.PushJump()
+		}
+	}))
 	ulua.L.SetField(pkg, "CurTab", luar.New(ulua.L, action.MainTab))
 	ulua.L.SetField(pkg, "Tabs", luar.New(ulua.L, func() *action.TabList {
 		return action.Tabs

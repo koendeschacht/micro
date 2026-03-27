@@ -63,6 +63,8 @@ var bufdefaults = map[string]string{
 	"CtrlEnd":        "CursorEnd",
 	"PageUp":         "CursorPageUp",
 	"PageDown":       "CursorPageDown",
+	"Alt-h":          "JumpBack",
+	"Alt-l":          "JumpForward",
 	"CtrlPageUp":     "PreviousTab|LastTab",
 	"CtrlPageDown":   "NextTab|FirstTab",
 	"ShiftPageUp":    "SelectPageUp",

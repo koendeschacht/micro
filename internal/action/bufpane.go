@@ -254,6 +254,11 @@ type BufPane struct {
 	// since we may not know the window geometry yet. In such case we finish
 	// its initialization a bit later, after the initial resize.
 	initialized bool
+
+	// Jump history for back/forward navigation
+	jumpHistory    []JumpLocation
+	jumpIndex      int
+	jumpNavigating bool
 }
 
 func newBufPane(buf *buffer.Buffer, win display.BWindow, tab *Tab) *BufPane {
@@ -725,6 +730,8 @@ var BufKeyActions = map[string]BufKeyAction{
 	"CursorDown":                (*BufPane).CursorDown,
 	"CursorPageUp":              (*BufPane).CursorPageUp,
 	"CursorPageDown":            (*BufPane).CursorPageDown,
+	"JumpBack":                  (*BufPane).JumpBack,
+	"JumpForward":               (*BufPane).JumpForward,
 	"CursorLeft":                (*BufPane).CursorLeft,
 	"CursorRight":               (*BufPane).CursorRight,
 	"CursorStart":               (*BufPane).CursorStart,
