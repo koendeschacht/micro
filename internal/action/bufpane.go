@@ -531,19 +531,7 @@ func (h *BufPane) HandleEvent(event tcell.Event) {
 	h.Buf.MergeCursors()
 
 	if h.IsActive() {
-		// Display any gutter messages for this line
-		c := h.Buf.GetActiveCursor()
-		none := true
-		for _, m := range h.Buf.Messages {
-			if c.Y == m.Start.Y || c.Y == m.End.Y {
-				InfoBar.GutterMessage(m.Msg)
-				none = false
-				break
-			}
-		}
-		if none && InfoBar.HasGutter {
-			InfoBar.ClearGutter()
-		}
+		h.updateCursorGutterMessage()
 	}
 
 	cursors := h.Buf.GetCursors()
@@ -618,6 +606,22 @@ func (h *BufPane) execAction(action BufAction, name string, te *tcell.EventMouse
 
 func (h *BufPane) completeAction(action string) {
 	h.PluginCB("on" + action)
+}
+
+func (h *BufPane) updateCursorGutterMessage() {
+	c := h.Buf.GetActiveCursor()
+	for _, m := range h.Buf.Messages {
+		if buffer.IsDiagnosticMessage(m) {
+			continue
+		}
+		if c.Y == m.Start.Y || c.Y == m.End.Y {
+			InfoBar.GutterMessage(m.Msg)
+			return
+		}
+	}
+	if InfoBar.HasGutter {
+		InfoBar.ClearGutter()
+	}
 }
 
 func (h *BufPane) HasKeyEvent(e Event) bool {
@@ -736,19 +740,7 @@ func (h *BufPane) SetActive(b bool) {
 
 	h.BWindow.SetActive(b)
 	if b {
-		// Display any gutter messages for this line
-		c := h.Buf.GetActiveCursor()
-		none := true
-		for _, m := range h.Buf.Messages {
-			if c.Y == m.Start.Y || c.Y == m.End.Y {
-				InfoBar.GutterMessage(m.Msg)
-				none = false
-				break
-			}
-		}
-		if none && InfoBar.HasGutter {
-			InfoBar.ClearGutter()
-		}
+		h.updateCursorGutterMessage()
 
 		err := config.RunPluginFn("onSetActive", luar.New(ulua.L, h))
 		if err != nil {

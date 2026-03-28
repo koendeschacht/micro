@@ -45,6 +45,8 @@ func InitCommands() {
 		"quit":        {(*BufPane).QuitCmd, nil},
 		"goto":        {(*BufPane).GotoCmd, nil},
 		"jump":        {(*BufPane).JumpCmd, nil},
+		"nextdiag":    {(*BufPane).NextDiagCmd, nil},
+		"prevdiag":    {(*BufPane).PrevDiagCmd, nil},
 		"save":        {(*BufPane).SaveCmd, nil},
 		"replace":     {(*BufPane).ReplaceCmd, nil},
 		"replaceall":  {(*BufPane).ReplaceAllCmd, nil},
@@ -941,6 +943,26 @@ func (h *BufPane) JumpCmd(args []string) {
 	h.RemoveAllMultiCursors()
 	h.Cursor.Deselect(true)
 	h.GotoLoc(buffer.Loc{col, line})
+}
+
+func (h *BufPane) jumpDiagnostic(forward bool) {
+	target := buffer.NextDiagnosticMessage(h.Buf.Messages, h.Buf.GetActiveCursor().Loc, forward)
+	if target == nil {
+		InfoBar.Message("No diagnostics")
+		return
+	}
+
+	loc := buffer.DiagnosticSortKey(target)
+	h.GotoLoc(loc)
+	h.Center()
+}
+
+func (h *BufPane) NextDiagCmd(args []string) {
+	h.jumpDiagnostic(true)
+}
+
+func (h *BufPane) PrevDiagCmd(args []string) {
+	h.jumpDiagnostic(false)
 }
 
 // parseLineCol is a helper to parse the input of GotoCmd and JumpCmd

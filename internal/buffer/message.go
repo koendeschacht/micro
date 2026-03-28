@@ -2,6 +2,7 @@ package buffer
 
 import (
 	"github.com/micro-editor/micro/v2/internal/config"
+	"github.com/micro-editor/micro/v2/internal/util"
 	"github.com/micro-editor/tcell/v2"
 )
 
@@ -91,4 +92,138 @@ var prompt Messager
 
 func SetMessager(m Messager) {
 	prompt = m
+}
+
+func IsDiagnosticMessage(m *Message) bool {
+	return m != nil && m.Msg != ""
+}
+
+func DiagnosticSortKey(m *Message) Loc {
+	if m == nil {
+		return Loc{}
+	}
+	loc := m.Start
+	if loc.X < 0 {
+		loc.X = 0
+	}
+	if loc.Y < 0 {
+		loc.Y = 0
+	}
+	return loc
+}
+
+func messageContainsCursor(m *Message, loc Loc) bool {
+	start, end := m.Start, m.End
+	if end.LessThan(start) {
+		start, end = end, start
+	}
+	if start == end {
+		return loc.Y == start.Y
+	}
+	return !loc.LessThan(start) && loc.LessThan(end)
+}
+
+func messageContainsLine(m *Message, line int) bool {
+	startY := util.Min(m.Start.Y, m.End.Y)
+	endY := util.Max(m.Start.Y, m.End.Y)
+	return line >= startY && line <= endY
+}
+
+func messagePriority(m *Message) int {
+	switch m.Kind {
+	case MTError:
+		return 0
+	case MTWarning:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func messageSpan(m *Message, b *Buffer) int {
+	start, end := m.Start, m.End
+	if start.X < 0 {
+		start.X = 0
+	}
+	if end.X < 0 {
+		end.X = 0
+	}
+	if start.Y < 0 {
+		start.Y = 0
+	}
+	if end.Y < 0 {
+		end.Y = 0
+	}
+	return start.Diff(end, b)
+}
+
+func CurrentDiagnosticMessage(msgs []*Message, cursor Loc, b *Buffer) *Message {
+	var best *Message
+	bestMatchRank := 3
+	bestPriority := 3
+	bestSpan := 0
+
+	for _, m := range msgs {
+		if !IsDiagnosticMessage(m) {
+			continue
+		}
+
+		matchRank := 3
+		switch {
+		case messageContainsCursor(m, cursor):
+			matchRank = 0
+		case m.Start.Y == cursor.Y:
+			matchRank = 1
+		case messageContainsLine(m, cursor.Y):
+			matchRank = 2
+		default:
+			continue
+		}
+
+		priority := messagePriority(m)
+		span := messageSpan(m, b)
+		if best == nil || matchRank < bestMatchRank ||
+			(matchRank == bestMatchRank && priority < bestPriority) ||
+			(matchRank == bestMatchRank && priority == bestPriority && span < bestSpan) {
+			best = m
+			bestMatchRank = matchRank
+			bestPriority = priority
+			bestSpan = span
+		}
+	}
+
+	return best
+}
+
+func NextDiagnosticMessage(msgs []*Message, cursor Loc, forward bool) *Message {
+	var target *Message
+	var wrapTarget *Message
+
+	for _, msg := range msgs {
+		if !IsDiagnosticMessage(msg) {
+			continue
+		}
+
+		msgLoc := DiagnosticSortKey(msg)
+		if forward {
+			if msgLoc.GreaterThan(cursor) && (target == nil || msgLoc.LessThan(DiagnosticSortKey(target))) {
+				target = msg
+			}
+			if wrapTarget == nil || msgLoc.LessThan(DiagnosticSortKey(wrapTarget)) {
+				wrapTarget = msg
+			}
+		} else {
+			if msgLoc.LessThan(cursor) && (target == nil || msgLoc.GreaterThan(DiagnosticSortKey(target))) {
+				target = msg
+			}
+			if wrapTarget == nil || msgLoc.GreaterThan(DiagnosticSortKey(wrapTarget)) {
+				wrapTarget = msg
+			}
+		}
+	}
+
+	if target != nil {
+		return target
+	}
+	return wrapTarget
 }
