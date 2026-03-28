@@ -396,6 +396,264 @@ func trimToWidth(s string, width int) string {
 	return string(out)
 }
 
+func popupMaxTextWidth(lines []string) int {
+	width := 1
+	for _, line := range lines {
+		width = util.Max(width, runewidth.StringWidth(line))
+	}
+	return width
+}
+
+func drawPopupLines(x, y, boxWidth, padLeft int, lines []string, rowStyle func(int) tcell.Style, textStyle func(int) tcell.Style) {
+	for i, line := range lines {
+		style := rowStyle(i)
+		for dx := 0; dx < boxWidth; dx++ {
+			screen.SetContent(x+dx, y+i, ' ', nil, style)
+		}
+
+		text := trimToWidth(line, util.Max(0, boxWidth-padLeft))
+		textX := x + padLeft
+		for _, r := range text {
+			screen.SetContent(textX, y+i, r, nil, textStyle(i))
+			textX += runewidth.RuneWidth(r)
+		}
+	}
+}
+
+func (w *BufWindow) clampPopupX(anchor buffer.Loc, boxWidth int) int {
+	bufX := w.X + w.gutterOffset
+	popupX := bufX + anchor.X - w.StartCol
+	maxPopupX := bufX + w.bufWidth - boxWidth
+	return util.Clamp(popupX, bufX, maxPopupX)
+}
+
+func wrapTextToWidth(text string, width int) []string {
+	if width <= 0 {
+		return nil
+	}
+
+	text = strings.ReplaceAll(text, "\t", "    ")
+	rawLines := strings.Split(text, "\n")
+	wrapped := make([]string, 0, len(rawLines))
+
+	for _, rawLine := range rawLines {
+		if rawLine == "" {
+			wrapped = append(wrapped, "")
+			continue
+		}
+
+		remaining := rawLine
+		for len(remaining) > 0 {
+			if runewidth.StringWidth(remaining) <= width {
+				wrapped = append(wrapped, remaining)
+				break
+			}
+
+			curWidth := 0
+			splitByte := 0
+			lastSpaceByte := -1
+			for idx, r := range remaining {
+				rw := runewidth.RuneWidth(r)
+				if rw <= 0 {
+					rw = 1
+				}
+				if curWidth+rw > width {
+					break
+				}
+				curWidth += rw
+				splitByte = idx + len(string(r))
+				if r == ' ' {
+					lastSpaceByte = idx
+				}
+			}
+
+			if splitByte == 0 {
+				_, _, size := util.DecodeCharacterInString(remaining)
+				splitByte = size
+			}
+
+			lineEnd := splitByte
+			nextStart := splitByte
+			if lastSpaceByte >= 0 {
+				lineEnd = lastSpaceByte
+				nextStart = lastSpaceByte + 1
+			}
+
+			line := strings.TrimRight(remaining[:lineEnd], " ")
+			if line == "" {
+				line = trimToWidth(remaining[:splitByte], width)
+				nextStart = splitByte
+			}
+			wrapped = append(wrapped, line)
+
+			remaining = strings.TrimLeft(remaining[nextStart:], " ")
+		}
+	}
+
+	if len(wrapped) == 0 {
+		return []string{""}
+	}
+	return wrapped
+}
+
+func messageContainsCursor(m *buffer.Message, loc buffer.Loc) bool {
+	start, end := m.Start, m.End
+	if end.LessThan(start) {
+		start, end = end, start
+	}
+	if start == end {
+		return loc.Y == start.Y
+	}
+	return !loc.LessThan(start) && loc.LessThan(end)
+}
+
+func messageContainsLine(m *buffer.Message, line int) bool {
+	startY := util.Min(m.Start.Y, m.End.Y)
+	endY := util.Max(m.Start.Y, m.End.Y)
+	return line >= startY && line <= endY
+}
+
+func messagePriority(m *buffer.Message) int {
+	switch m.Kind {
+	case buffer.MTError:
+		return 0
+	case buffer.MTWarning:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func messageSpan(m *buffer.Message, b *buffer.Buffer) int {
+	return m.Start.Diff(m.End, b)
+}
+
+func (w *BufWindow) currentDiagnosticMessage() *buffer.Message {
+	if !w.active {
+		return nil
+	}
+
+	cursor := w.Buf.GetActiveCursor().Loc
+	var best *buffer.Message
+	bestMatchRank := 3
+	bestPriority := 3
+	bestSpan := 0
+
+	for _, m := range w.Buf.Messages {
+		if m.Owner != "lsp" || m.Msg == "" {
+			continue
+		}
+
+		matchRank := 3
+		switch {
+		case messageContainsCursor(m, cursor):
+			matchRank = 0
+		case m.Start.Y == cursor.Y:
+			matchRank = 1
+		case messageContainsLine(m, cursor.Y):
+			matchRank = 2
+		default:
+			continue
+		}
+
+		priority := messagePriority(m)
+		span := messageSpan(m, w.Buf)
+		if best == nil || matchRank < bestMatchRank ||
+			(matchRank == bestMatchRank && priority < bestPriority) ||
+			(matchRank == bestMatchRank && priority == bestPriority && span < bestSpan) {
+			best = m
+			bestMatchRank = matchRank
+			bestPriority = priority
+			bestSpan = span
+		}
+	}
+
+	return best
+}
+
+func (w *BufWindow) displayDiagnosticPopup() {
+	m := w.currentDiagnosticMessage()
+	if m == nil || w.bufWidth <= 0 || w.bufHeight <= 0 {
+		return
+	}
+
+	bufY := w.Y
+	anchor := w.VLocFromLoc(m.Start)
+	anchorY := bufY + w.Diff(w.StartLine, anchor.SLoc)
+	if anchorY < bufY || anchorY >= bufY+w.bufHeight {
+		return
+	}
+
+	const popupPadX = 1
+	const popupPadY = 0
+	maxTextWidth := util.Min(w.bufWidth-2-(popupPadX*2), 80)
+	if maxTextWidth <= 0 {
+		return
+	}
+
+	lines := wrapTextToWidth(m.Msg, maxTextWidth)
+	if len(lines) == 0 {
+		return
+	}
+
+	maxPopupHeight := w.bufHeight
+	if maxPopupHeight < 3 {
+		return
+	}
+	maxContentLines := maxPopupHeight - 2 - (popupPadY * 2)
+	if maxContentLines <= 0 {
+		return
+	}
+	if len(lines) > maxContentLines {
+		lines = lines[:maxContentLines]
+		if maxContentLines > 0 {
+			last := trimToWidth(lines[maxContentLines-1], util.Max(0, maxTextWidth-1))
+			lines[maxContentLines-1] = last + "…"
+		}
+	}
+
+	textWidth := popupMaxTextWidth(lines)
+	boxWidth := textWidth + (popupPadX * 2)
+	boxHeight := len(lines) + (popupPadY * 2)
+	if boxWidth > w.bufWidth {
+		boxWidth = w.bufWidth
+	}
+
+	popupX := w.clampPopupX(buffer.Loc{X: anchor.VisualX}, boxWidth)
+
+	popupY := anchorY + 1
+	maxPopupY := bufY + w.bufHeight - boxHeight
+	popupY = util.Clamp(popupY, bufY, maxPopupY)
+
+	popupStyle := config.DefStyle.Reverse(true)
+	if style, ok := config.Colorscheme["diagnostic.popup"]; ok {
+		popupStyle = style
+	} else if style, ok := config.Colorscheme["autocomplete.popup"]; ok {
+		popupStyle = style
+	}
+
+	textStyle := popupStyle
+	switch m.Kind {
+	case buffer.MTError:
+		if style, ok := config.Colorscheme["diagnostic.error"]; ok {
+			textStyle = style
+		}
+	case buffer.MTWarning:
+		if style, ok := config.Colorscheme["diagnostic.warning"]; ok {
+			textStyle = style
+		}
+	default:
+		if style, ok := config.Colorscheme["diagnostic.info"]; ok {
+			textStyle = style
+		}
+	}
+
+	drawPopupLines(popupX, popupY+popupPadY, boxWidth, popupPadX, lines,
+		func(int) tcell.Style { return popupStyle },
+		func(int) tcell.Style { return textStyle },
+	)
+}
+
 func (w *BufWindow) displayCompletionPopup() {
 	b := w.Buf
 	if !w.active || !b.CompletionMenu || len(b.Suggestions) == 0 {
@@ -406,13 +664,10 @@ func (w *BufWindow) displayCompletionPopup() {
 	bufY := w.Y
 	anchor := w.VLocFromLoc(b.CompletionStart)
 	cursor := w.VLocFromLoc(b.GetActiveCursor().Loc)
-	popupX := bufX + anchor.VisualX - w.StartCol
+	popupX := w.clampPopupX(buffer.Loc{X: anchor.VisualX}, 0)
 	popupY := bufY + w.Diff(w.StartLine, cursor.SLoc) + 1
 	if popupY < bufY || popupY >= w.Y+w.Height {
 		return
-	}
-	if popupX < bufX {
-		popupX = bufX
 	}
 	availableWidth := bufX + w.bufWidth - popupX
 	availableHeight := w.Y + w.Height - popupY
@@ -437,10 +692,7 @@ func (w *BufWindow) displayCompletionPopup() {
 		startIdx = 0
 	}
 
-	textWidth := 1
-	for _, suggestion := range b.Suggestions {
-		textWidth = util.Max(textWidth, runewidth.StringWidth(suggestion))
-	}
+	textWidth := popupMaxTextWidth(b.Suggestions)
 	const popupPadLeft = 0
 	const popupPadRight = 0
 	textWidth = util.Min(textWidth, availableWidth-(popupPadLeft+popupPadRight)-2)
@@ -461,33 +713,30 @@ func (w *BufWindow) displayCompletionPopup() {
 		selectedStyle = style
 	}
 	boxWidth := textWidth + popupPadLeft + popupPadRight + 2
+	popupX = w.clampPopupX(buffer.Loc{X: anchor.VisualX}, boxWidth)
 
-	drawText := func(x, y int, text string, style tcell.Style) {
-		for _, r := range text {
-			screen.SetContent(x, y, r, nil, style)
-			x += runewidth.RuneWidth(r)
-		}
-	}
-
-	drawRow := func(y int, left, fill, right rune, style tcell.Style) {
-		screen.SetContent(popupX, y, left, nil, style)
-		for x := 1; x < boxWidth-1; x++ {
-			screen.SetContent(popupX+x, y, fill, nil, style)
-		}
-		screen.SetContent(popupX+boxWidth-1, y, right, nil, style)
-	}
-
+	lines := make([]string, visibleItems)
 	for i := 0; i < visibleItems; i++ {
 		idx := startIdx + i
-		style := popupStyle
-		if idx == b.CurSuggestion {
-			style = selectedStyle
-		}
-		y := popupY + i
-		drawRow(y, ' ', ' ', ' ', style)
-		text := trimToWidth(b.Suggestions[idx], textWidth)
-		drawText(popupX+1+popupPadLeft, y, text, style)
+		lines[i] = b.Suggestions[idx]
 	}
+
+	drawPopupLines(popupX, popupY, boxWidth, 1+popupPadLeft, lines,
+		func(i int) tcell.Style {
+			idx := startIdx + i
+			if idx == b.CurSuggestion {
+				return selectedStyle
+			}
+			return popupStyle
+		},
+		func(i int) tcell.Style {
+			idx := startIdx + i
+			if idx == b.CurSuggestion {
+				return selectedStyle
+			}
+			return popupStyle
+		},
+	)
 }
 
 // displayBuffer draws the buffer being shown in this window on the screen.Screen
@@ -1045,5 +1294,6 @@ func (w *BufWindow) Display() {
 	w.displayStatusLine()
 	w.displayScrollBar()
 	w.displayBuffer()
+	w.displayDiagnosticPopup()
 	w.displayCompletionPopup()
 }
