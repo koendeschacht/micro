@@ -41,6 +41,16 @@ type Delta struct {
 	End   Loc
 }
 
+func deltaEnd(start Loc, text []byte) Loc {
+	linecount := bytes.Count(text, []byte{'\n'})
+	if linecount == 0 {
+		return Loc{X: start.X + util.CharacterCount(text), Y: start.Y}
+	}
+
+	lastnl := bytes.LastIndex(text, []byte{'\n'})
+	return Loc{X: util.CharacterCount(text[lastnl+1:]), Y: start.Y + linecount}
+}
+
 // DoTextEvent runs a text event
 func (eh *EventHandler) DoTextEvent(t *TextEvent, useUndo bool) {
 	oldl := eh.buf.LinesNum()
@@ -127,7 +137,7 @@ func ExecuteTextEvent(t *TextEvent, buf *SharedBuffer) {
 			t.Deltas[i].Text = buf.remove(d.Start, d.End)
 			buf.insert(d.Start, d.Text)
 			t.Deltas[i].Start = d.Start
-			t.Deltas[i].End = Loc{d.Start.X + util.CharacterCount(d.Text), d.Start.Y}
+			t.Deltas[i].End = deltaEnd(d.Start, d.Text)
 		}
 		for i, j := 0, len(t.Deltas)-1; i < j; i, j = i+1, j-1 {
 			t.Deltas[i], t.Deltas[j] = t.Deltas[j], t.Deltas[i]

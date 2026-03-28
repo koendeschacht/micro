@@ -811,6 +811,7 @@ var BufKeyActions = map[string]BufKeyAction{
 	"CopyLine":                  (*BufPane).CopyLine,
 	"Cut":                       (*BufPane).Cut,
 	"CutLine":                   (*BufPane).CutLine,
+	"ClipboardHistory":          (*BufPane).ClipboardHistory,
 	"Duplicate":                 (*BufPane).Duplicate,
 	"DuplicateLine":             (*BufPane).DuplicateLine,
 	"DeleteLine":                (*BufPane).DeleteLine,

@@ -315,3 +315,49 @@ func TestAcceptCompletionMenuMovesCursorToInsertedEnd(t *testing.T) {
 	assert.Equal("passes_through_hut=", string(b.Bytes()))
 	assert.Equal(Loc{19, 0}, b.GetActiveCursor().Loc)
 }
+
+func TestShowCompletionMenuAtUsesExplicitRange(t *testing.T) {
+	assert := assert.New(t)
+
+	b := NewBufferFromString("hello world", "", BTDefault)
+	b.GetActiveCursor().GotoLoc(Loc{11, 0})
+
+	ok := b.ShowCompletionMenuAt([]CompletionItem{{
+		Suggestion: "planet",
+		Insert:     "planet",
+		Provider:   "clipboard",
+	}}, Loc{6, 0}, Loc{11, 0}, 0)
+
+	assert.True(ok)
+	assert.True(b.CompletionMenu)
+	assert.Equal(0, b.CurSuggestion)
+	assert.Equal(Loc{6, 0}, b.CompletionStart)
+	assert.Equal(Loc{11, 0}, b.CompletionEnd)
+
+	ok = b.AcceptCompletionMenu()
+
+	assert.True(ok)
+	assert.Equal("hello planet", string(b.Bytes()))
+	assert.Equal(Loc{12, 0}, b.GetActiveCursor().Loc)
+}
+
+func TestAcceptCompletionMenuUndoRemovesMultilineClipboardInsert(t *testing.T) {
+	assert := assert.New(t)
+
+	b := NewBufferFromString("start", "", BTDefault)
+	b.GetActiveCursor().GotoLoc(Loc{5, 0})
+
+	ok := b.ShowCompletionMenuAt([]CompletionItem{{
+		Suggestion: "one\\ntwo",
+		Insert:     "one\ntwo",
+		Provider:   "clipboard",
+	}}, Loc{5, 0}, Loc{5, 0}, 0)
+	assert.True(ok)
+
+	ok = b.AcceptCompletionMenu()
+	assert.True(ok)
+	assert.Equal("startone\ntwo", string(b.Bytes()))
+
+	b.UndoOneEvent()
+	assert.Equal("start", string(b.Bytes()))
+}

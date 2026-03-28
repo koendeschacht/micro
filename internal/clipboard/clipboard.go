@@ -137,13 +137,14 @@ func read(r Register, m Method) (string, error) {
 }
 
 func write(text string, r Register, m Method) error {
+	var err error
 	switch m {
 	case External:
 		switch r {
 		case ClipboardReg:
-			return clipboard.WriteAll(clipper.RegClipboard, []byte(text))
+			err = clipboard.WriteAll(clipper.RegClipboard, []byte(text))
 		case PrimaryReg:
-			return clipboard.WriteAll(clipper.RegPrimary, []byte(text))
+			err = clipboard.WriteAll(clipper.RegPrimary, []byte(text))
 		default:
 			internal.write(text, r)
 		}
@@ -152,12 +153,17 @@ func write(text string, r Register, m Method) error {
 	case Terminal:
 		switch r {
 		case ClipboardReg:
-			return terminal.write(text, "c")
+			err = terminal.write(text, "c")
 		case PrimaryReg:
-			return terminal.write(text, "p")
+			err = terminal.write(text, "p")
 		default:
 			internal.write(text, r)
 		}
+	default:
+		return errors.New("Invalid clipboard method")
 	}
-	return nil
+	if err == nil {
+		recordHistory(text)
+	}
+	return err
 }

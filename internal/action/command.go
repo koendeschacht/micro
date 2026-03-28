@@ -45,6 +45,7 @@ func InitCommands() {
 		"quit":        {(*BufPane).QuitCmd, nil},
 		"goto":        {(*BufPane).GotoCmd, nil},
 		"jump":        {(*BufPane).JumpCmd, nil},
+		"cliphist":    {(*BufPane).ClipboardHistoryCmd, nil},
 		"nextdiag":    {(*BufPane).NextDiagCmd, nil},
 		"prevdiag":    {(*BufPane).PrevDiagCmd, nil},
 		"save":        {(*BufPane).SaveCmd, nil},
@@ -963,6 +964,10 @@ func (h *BufPane) NextDiagCmd(args []string) {
 
 func (h *BufPane) PrevDiagCmd(args []string) {
 	h.jumpDiagnostic(false)
+}
+
+func (h *BufPane) ClipboardHistoryCmd(args []string) {
+	h.ClipboardHistory()
 }
 
 // parseLineCol is a helper to parse the input of GotoCmd and JumpCmd

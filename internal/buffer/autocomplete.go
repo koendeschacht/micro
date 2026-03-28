@@ -199,6 +199,12 @@ func (b *Buffer) ShowGhostCompletion(item CompletionItem) bool {
 
 // ShowCompletionMenu activates popup menu mode without mutating the buffer.
 func (b *Buffer) ShowCompletionMenu(items []CompletionItem) bool {
+	start, end, _ := b.CurrentWordRange()
+	return b.ShowCompletionMenuAt(items, start, end, -1)
+}
+
+// ShowCompletionMenuAt activates popup menu mode for an explicit replace range.
+func (b *Buffer) ShowCompletionMenuAt(items []CompletionItem, start, end Loc, selected int) bool {
 	if len(items) == 0 {
 		return false
 	}
@@ -206,8 +212,12 @@ func (b *Buffer) ShowCompletionMenu(items []CompletionItem) bool {
 	b.ClearAutocomplete()
 	b.setCompletionItems(items)
 	b.CompletionMenu = true
-	b.CurSuggestion = -1
-	b.CompletionStart, b.CompletionEnd, _ = b.CurrentWordRange()
+	if selected < -1 || selected >= len(b.Suggestions) {
+		selected = -1
+	}
+	b.CurSuggestion = selected
+	b.CompletionStart = start
+	b.CompletionEnd = end
 	return true
 }
 

@@ -1439,6 +1439,57 @@ func (h *BufPane) CutLine() bool {
 	return true
 }
 
+func clipboardHistoryPreview(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return strings.ReplaceAll(text, "\n", `\n`)
+}
+
+func (h *BufPane) clipboardHistoryRange() (buffer.Loc, buffer.Loc) {
+	if !h.Cursor.HasSelection() {
+		return h.Cursor.Loc, h.Cursor.Loc
+	}
+
+	start := h.Cursor.CurSelection[0]
+	end := h.Cursor.CurSelection[1]
+	if start.GreaterThan(end) {
+		start, end = end, start
+	}
+	return start, end
+}
+
+// ClipboardHistory opens a popup with recent clipboard writes.
+func (h *BufPane) ClipboardHistory() bool {
+	if h.Buf.NumCursors() > 1 {
+		InfoBar.Message("Clipboard history requires a single cursor")
+		return true
+	}
+
+	history := clipboard.GetHistory()
+	if len(history) == 0 {
+		InfoBar.Message("Clipboard history is empty")
+		return true
+	}
+
+	items := make([]buffer.CompletionItem, 0, len(history))
+	for _, entry := range history {
+		items = append(items, buffer.CompletionItem{
+			Completion: entry,
+			Suggestion: clipboardHistoryPreview(entry),
+			Insert:     entry,
+			Provider:   "clipboard",
+		})
+	}
+
+	start, end := h.clipboardHistoryRange()
+	if !h.Buf.ShowCompletionMenuAt(items, start, end, 0) {
+		return false
+	}
+
+	h.Relocate()
+	return true
+}
+
 // Duplicate the selection
 func (h *BufPane) Duplicate() bool {
 	if !h.Cursor.HasSelection() {
