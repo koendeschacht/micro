@@ -88,9 +88,17 @@ type SharedBuffer struct {
 
 	encoding encoding.Encoding
 
-	Suggestions   []string
-	Completions   []string
-	CurSuggestion int
+	Suggestions       []string
+	Completions       []string
+	CompletionValues  []string
+	CompletionSources []string
+	CompletionEdits   [][]Delta
+	CurSuggestion     int
+	CompletionMenu    bool
+	CompletionStart   Loc
+	CompletionEnd     Loc
+	GhostText         string
+	GhostAt           Loc
 
 	Messages []*Message
 
@@ -125,6 +133,14 @@ type SharedBuffer struct {
 
 func (b *SharedBuffer) insert(pos Loc, value []byte) {
 	b.HasSuggestions = false
+	b.CompletionMenu = false
+	b.CompletionValues = nil
+	b.CompletionSources = nil
+	b.CompletionEdits = nil
+	b.CompletionStart = Loc{}
+	b.CompletionEnd = Loc{}
+	b.GhostText = ""
+	b.GhostAt = Loc{}
 	b.LineArray.insert(pos, value)
 	b.setModified()
 
@@ -134,6 +150,14 @@ func (b *SharedBuffer) insert(pos Loc, value []byte) {
 
 func (b *SharedBuffer) remove(start, end Loc) []byte {
 	b.HasSuggestions = false
+	b.CompletionMenu = false
+	b.CompletionValues = nil
+	b.CompletionSources = nil
+	b.CompletionEdits = nil
+	b.CompletionStart = Loc{}
+	b.CompletionEnd = Loc{}
+	b.GhostText = ""
+	b.GhostAt = Loc{}
 	defer b.setModified()
 	defer b.MarkModified(start.Y, end.Y)
 	return b.LineArray.remove(start, end)

@@ -688,6 +688,10 @@ func (h *BufPane) SelectToEnd() bool {
 
 // InsertNewline inserts a newline plus possible some whitespace if autoindent is on
 func (h *BufPane) InsertNewline() bool {
+	if h.Buf.CompletionMenu && h.Buf.CurSuggestion >= 0 {
+		return h.Buf.AcceptCompletionMenu()
+	}
+
 	// Insert a newline
 	if h.Cursor.HasSelection() {
 		h.Cursor.DeleteSelection()
@@ -746,6 +750,9 @@ func (h *BufPane) Backspace() bool {
 	}
 	h.Cursor.StoreVisualX()
 	h.Relocate()
+	if h.Buf.NumCursors() == 1 && h.Buf.CurrentWordLength() >= buffer.MinAutomaticCompletionChars {
+		h.scheduleAutomaticCompletion()
+	}
 	return true
 }
 
@@ -757,6 +764,9 @@ func (h *BufPane) DeleteWordRight() bool {
 		h.Cursor.ResetSelection()
 	}
 	h.Relocate()
+	if h.Buf.NumCursors() == 1 && h.Buf.CurrentWordLength() >= buffer.MinAutomaticCompletionChars {
+		h.scheduleAutomaticCompletion()
+	}
 	return true
 }
 
@@ -907,32 +917,31 @@ func (h *BufPane) OutdentSelection() bool {
 func (h *BufPane) Autocomplete() bool {
 	b := h.Buf
 
+	if b.HasGhostCompletion() {
+		return b.AcceptGhostCompletion()
+	}
+
+	if b.CompletionMenu {
+		b.CycleCompletionMenu(true)
+		return true
+	}
+
 	if h.Cursor.HasSelection() {
 		return false
 	}
 
-	if b.HasSuggestions {
-		b.CycleAutocomplete(true)
-		return true
-	}
-
-	if h.Cursor.X == 0 {
-		return false
-	}
-	r := h.Cursor.RuneUnder(h.Cursor.X)
-	prev := h.Cursor.RuneUnder(h.Cursor.X - 1)
-	if !util.IsAutocomplete(prev) || util.IsWordChar(r) {
-		// don't autocomplete if cursor is within a word
-		return false
-	}
-
-	return b.Autocomplete(buffer.BufferComplete)
+	return false
 }
 
 // CycleAutocompleteBack cycles back in the autocomplete suggestion list
 func (h *BufPane) CycleAutocompleteBack() bool {
 	if h.Cursor.HasSelection() {
 		return false
+	}
+
+	if h.Buf.CompletionMenu {
+		h.Buf.CycleCompletionMenu(false)
+		return true
 	}
 
 	if h.Buf.HasSuggestions {
@@ -1878,6 +1887,10 @@ func (h *BufPane) ToggleOverwriteMode() bool {
 
 // Escape leaves current mode
 func (h *BufPane) Escape() bool {
+	if h.Buf.CompletionMenu || h.Buf.HasGhostCompletion() {
+		h.Buf.ClearAutocomplete()
+		return true
+	}
 	return true
 }
 

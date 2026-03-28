@@ -2,6 +2,7 @@ package action
 
 import (
 	"strings"
+	"sync/atomic"
 	"time"
 
 	luar "layeh.com/gopher-luar"
@@ -259,7 +260,11 @@ type BufPane struct {
 	jumpHistory    []JumpLocation
 	jumpIndex      int
 	jumpNavigating bool
+
+	autoCompleteToken uint64
 }
+
+const bufferAutoCompleteDebounce = 75 * time.Millisecond
 
 func newBufPane(buf *buffer.Buffer, win display.BWindow, tab *Tab) *BufPane {
 	h := new(BufPane)
@@ -288,6 +293,25 @@ func NewBufPaneFromBuf(buf *buffer.Buffer, tab *Tab) *BufPane {
 	// Postpone finishing initializing the pane until we know the actual geometry
 	// of the buf window.
 	return h
+}
+
+func (h *BufPane) cancelAutomaticCompletion() {
+	atomic.AddUint64(&h.autoCompleteToken, 1)
+}
+
+func (h *BufPane) scheduleAutomaticCompletion() {
+	h.cancelAutomaticCompletion()
+	if h.Buf.NumCursors() != 1 || h.Buf.CurrentWordLength() < buffer.MinAutomaticCompletionChars {
+		return
+	}
+	token := atomic.LoadUint64(&h.autoCompleteToken)
+	time.AfterFunc(bufferAutoCompleteDebounce, func() {
+		if atomic.LoadUint64(&h.autoCompleteToken) != token {
+			return
+		}
+		h.Buf.StartAutomaticCompletion(buffer.BufferCompleteProvider)
+		screen.Redraw()
+	})
 }
 
 // TODO: make sure splitID and tab are set before finishInitialize is called
@@ -558,8 +582,14 @@ func (h *BufPane) DoKeyEvent(e Event) bool {
 }
 
 func (h *BufPane) execAction(action BufAction, name string, te *tcell.EventMouse) bool {
-	if name != "Autocomplete" && name != "CycleAutocompleteBack" {
-		h.Buf.HasSuggestions = false
+	h.cancelAutomaticCompletion()
+
+	if name == "InsertNewline" && h.Buf.CompletionMenu && h.Buf.CurSuggestion >= 0 {
+		return h.Buf.AcceptCompletionMenu()
+	}
+
+	if name != "Autocomplete" && name != "CycleAutocompleteBack" && name != "Escape" {
+		h.Buf.ClearAutocomplete()
 	}
 
 	if !h.PluginCB("pre"+name, te) {
@@ -649,6 +679,9 @@ func (h *BufPane) DoRuneInsert(r rune) {
 		}
 		h.Relocate()
 		h.PluginCB("onRune", string(r))
+		if h.Buf.NumCursors() == 1 && util.IsAutocomplete(r) && h.Buf.CurrentWordLength() >= buffer.MinAutomaticCompletionChars {
+			h.scheduleAutomaticCompletion()
+		}
 	}
 }
 

@@ -379,6 +379,117 @@ func (w *BufWindow) showCursor(x, y int, main bool) {
 	}
 }
 
+func trimToWidth(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	curWidth := 0
+	var out []rune
+	for _, r := range s {
+		rw := runewidth.RuneWidth(r)
+		if curWidth+rw > width {
+			break
+		}
+		out = append(out, r)
+		curWidth += rw
+	}
+	return string(out)
+}
+
+func (w *BufWindow) displayCompletionPopup() {
+	b := w.Buf
+	if !w.active || !b.CompletionMenu || len(b.Suggestions) == 0 {
+		return
+	}
+
+	bufX := w.X + w.gutterOffset
+	bufY := w.Y
+	anchor := w.VLocFromLoc(b.CompletionStart)
+	cursor := w.VLocFromLoc(b.GetActiveCursor().Loc)
+	popupX := bufX + anchor.VisualX - w.StartCol
+	popupY := bufY + w.Diff(w.StartLine, cursor.SLoc) + 1
+	if popupY < bufY || popupY >= w.Y+w.Height {
+		return
+	}
+	if popupX < bufX {
+		popupX = bufX
+	}
+	availableWidth := bufX + w.bufWidth - popupX
+	availableHeight := w.Y + w.Height - popupY
+	if availableWidth < 4 || availableHeight < 3 {
+		return
+	}
+
+	const maxPopupItems = 8
+	visibleItems := util.Min(len(b.Suggestions), util.Min(maxPopupItems, availableHeight-2))
+	if visibleItems <= 0 {
+		return
+	}
+
+	startIdx := 0
+	if b.CurSuggestion >= visibleItems {
+		startIdx = b.CurSuggestion - visibleItems + 1
+	}
+	if startIdx+visibleItems > len(b.Suggestions) {
+		startIdx = len(b.Suggestions) - visibleItems
+	}
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	textWidth := 1
+	for _, suggestion := range b.Suggestions {
+		textWidth = util.Max(textWidth, runewidth.StringWidth(suggestion))
+	}
+	const popupPadLeft = 0
+	const popupPadRight = 0
+	textWidth = util.Min(textWidth, availableWidth-(popupPadLeft+popupPadRight)-2)
+	if textWidth <= 0 {
+		return
+	}
+
+	popupStyle := config.DefStyle.Reverse(true)
+	if style, ok := config.Colorscheme["autocomplete.popup"]; ok {
+		popupStyle = style
+	} else if style, ok := config.Colorscheme["statusline.suggestions"]; ok {
+		popupStyle = style
+	} else if style, ok := config.Colorscheme["statusline"]; ok {
+		popupStyle = style
+	}
+	selectedStyle := popupStyle.Foreground(tcell.GetColor("#1F2330")).Background(tcell.GetColor("#5FC6C6"))
+	if style, ok := config.Colorscheme["autocomplete.selected"]; ok {
+		selectedStyle = style
+	}
+	boxWidth := textWidth + popupPadLeft + popupPadRight + 2
+
+	drawText := func(x, y int, text string, style tcell.Style) {
+		for _, r := range text {
+			screen.SetContent(x, y, r, nil, style)
+			x += runewidth.RuneWidth(r)
+		}
+	}
+
+	drawRow := func(y int, left, fill, right rune, style tcell.Style) {
+		screen.SetContent(popupX, y, left, nil, style)
+		for x := 1; x < boxWidth-1; x++ {
+			screen.SetContent(popupX+x, y, fill, nil, style)
+		}
+		screen.SetContent(popupX+boxWidth-1, y, right, nil, style)
+	}
+
+	for i := 0; i < visibleItems; i++ {
+		idx := startIdx + i
+		style := popupStyle
+		if idx == b.CurSuggestion {
+			style = selectedStyle
+		}
+		y := popupY + i
+		drawRow(y, ' ', ' ', ' ', style)
+		text := trimToWidth(b.Suggestions[idx], textWidth)
+		drawText(popupX+1+popupPadLeft, y, text, style)
+	}
+}
+
 // displayBuffer draws the buffer being shown in this window on the screen.Screen
 func (w *BufWindow) displayBuffer() {
 	b := w.Buf
@@ -814,6 +925,8 @@ func (w *BufWindow) displayBuffer() {
 				}
 			}
 		}
+		ghostX := vloc.X
+		ghostY := vloc.Y
 		for i := vloc.X; i < maxWidth; i++ {
 			curStyle := style
 			if s, ok := config.Colorscheme["color-column"]; ok {
@@ -829,6 +942,38 @@ func (w *BufWindow) displayBuffer() {
 			// Display newline within a selection
 			drawrune, drawstyle, preservebg := getRuneStyle(' ', config.DefStyle, 0, totalwidth, true)
 			draw(drawrune, nil, drawstyle, true, true, preservebg)
+		}
+
+		if b.GhostText != "" && b.GhostAt.Y == bloc.Y && b.GhostAt.X == bloc.X {
+			ghostStyle := style.Dim(true)
+			if s, ok := config.Colorscheme["autocomplete-ghost"]; ok {
+				ghostStyle = s
+			}
+			x := ghostX
+			visualWidth := totalwidth
+			for _, r := range b.GhostText {
+				width := runewidth.RuneWidth(r)
+				drawRune := r
+				if r == '\t' {
+					width = tabsize - (visualWidth % tabsize)
+					drawRune = ' '
+				}
+				if width <= 0 || x >= maxWidth {
+					break
+				}
+				screen.SetContent(w.X+x, w.Y+ghostY, drawRune, nil, ghostStyle)
+				x++
+				for i := 1; i < width && x < maxWidth; i++ {
+					screen.SetContent(w.X+x, w.Y+ghostY, ' ', nil, ghostStyle)
+					x++
+				}
+				visualWidth += width
+			}
+			for _, c := range cursors {
+				if c.X == b.GhostAt.X && c.Y == b.GhostAt.Y && !c.HasSelection() {
+					w.showCursor(w.X+ghostX, w.Y+ghostY, c.Num == 0)
+				}
+			}
 		}
 
 		bloc.X = w.StartCol
@@ -900,4 +1045,5 @@ func (w *BufWindow) Display() {
 	w.displayStatusLine()
 	w.displayScrollBar()
 	w.displayBuffer()
+	w.displayCompletionPopup()
 }
