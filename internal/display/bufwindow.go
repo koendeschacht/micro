@@ -172,17 +172,19 @@ func (w *BufWindow) updateDisplayInfo() {
 	}
 }
 
-func (w *BufWindow) getStartInfo(n, lineN int) ([]byte, int, int, *tcell.Style) {
+func (w *BufWindow) getStartInfo(n, lineN int) ([]byte, int, int, *tcell.Style, string) {
 	tabsize := util.IntOpt(w.Buf.Settings["tabsize"])
 	width := 0
 	bloc := buffer.Loc{0, lineN}
 	b := w.Buf.LineBytes(lineN)
 	curStyle := config.DefStyle
+	semanticGroup := ""
 	var s *tcell.Style
 	for len(b) > 0 {
 		r, _, size := util.DecodeCharacter(b)
 
 		curStyle, found := w.getStyle(curStyle, bloc)
+		semanticGroup, _ = w.getSemanticGroup(semanticGroup, bloc)
 		if found {
 			s = &curStyle
 		}
@@ -196,13 +198,13 @@ func (w *BufWindow) getStartInfo(n, lineN int) ([]byte, int, int, *tcell.Style) 
 			w = runewidth.RuneWidth(r)
 		}
 		if width+w > n {
-			return b, n - width, bloc.X, s
+			return b, n - width, bloc.X, s, semanticGroup
 		}
 		width += w
 		b = b[size:]
 		bloc.X++
 	}
-	return b, n - width, bloc.X, s
+	return b, n - width, bloc.X, s, semanticGroup
 }
 
 // Clear resets all cells in this window to the default style
@@ -367,6 +369,68 @@ func (w *BufWindow) getStyle(style tcell.Style, bloc buffer.Loc) (tcell.Style, b
 		return s, true
 	}
 	return style, false
+}
+
+func semanticBaseGroup(token string) string {
+	root := token
+	if idx := strings.Index(token, "."); idx >= 0 {
+		root = token[:idx]
+	}
+
+	switch root {
+	case "namespace":
+		return "identifier"
+	case "type", "class", "enum", "interface", "struct", "typeParameter":
+		return "type"
+	case "parameter", "variable", "property", "enumMember":
+		return "identifier.var"
+	case "function", "method":
+		return "identifier.class"
+	case "macro":
+		return "identifier.macro"
+	case "keyword", "modifier":
+		return "statement"
+	case "decorator":
+		return "preproc"
+	case "comment":
+		return "comment"
+	case "string", "regexp":
+		return "constant.string"
+	case "number":
+		return "constant.number"
+	case "operator":
+		return "symbol.operator"
+	case "escapeSequence":
+		return "constant.specialChar"
+	case "label":
+		return "special"
+	default:
+		return ""
+	}
+}
+
+func semanticStyle(base tcell.Style, token string) tcell.Style {
+	if token == "" {
+		return base
+	}
+	if style, ok := config.GetColorschemeStyle("lsp." + token); ok {
+		return style
+	}
+	if group := semanticBaseGroup(token); group != "" {
+		return config.GetColor(group)
+	}
+	return base
+}
+
+func (w *BufWindow) getSemanticGroup(group string, bloc buffer.Loc) (string, bool) {
+	line := w.Buf.SemanticLine(bloc.Y)
+	if line == nil {
+		return group, false
+	}
+	if next, ok := line[bloc.X]; ok {
+		return next, true
+	}
+	return group, false
 }
 
 func (w *BufWindow) showCursor(x, y int, main bool) {
@@ -743,6 +807,7 @@ func (w *BufWindow) displayBuffer() {
 	cursors := b.GetCursors()
 
 	curStyle := config.DefStyle
+	curSemanticGroup := ""
 
 	// Parse showchars which is in the format of key1=val1,key2=val2,...
 	spacechars := " "
@@ -805,10 +870,13 @@ func (w *BufWindow) displayBuffer() {
 		leadingwsEnd := len(util.GetLeadingWhitespace(bline))
 		trailingwsStart := blineLen - util.CharacterCount(util.GetTrailingWhitespace(bline))
 
-		line, nColsBeforeStart, bslice, startStyle := w.getStartInfo(w.StartCol, bloc.Y)
+		line, nColsBeforeStart, bslice, startStyle, startSemanticGroup := w.getStartInfo(w.StartCol, bloc.Y)
 		if startStyle != nil {
 			curStyle = *startStyle
+		} else {
+			curStyle = config.DefStyle
 		}
+		curSemanticGroup = startSemanticGroup
 		bloc.X = bslice
 
 		// returns the rune to be drawn, style of it and if the bg should be preserved
@@ -1020,6 +1088,11 @@ func (w *BufWindow) displayBuffer() {
 
 			loc := buffer.Loc{X: bloc.X + len(word), Y: bloc.Y}
 			curStyle, _ = w.getStyle(curStyle, loc)
+			curSemanticGroup, _ = w.getSemanticGroup(curSemanticGroup, loc)
+			runeStyle := curStyle
+			if curSemanticGroup != "" {
+				runeStyle = semanticStyle(curStyle, curSemanticGroup)
+			}
 
 			width := 0
 
@@ -1034,7 +1107,7 @@ func (w *BufWindow) displayBuffer() {
 				totalwidth += width
 			}
 
-			word = append(word, glyph{r, combc, curStyle, width})
+			word = append(word, glyph{r, combc, runeStyle, width})
 			wordwidth += width
 
 			// Collect a complete word to know its width.

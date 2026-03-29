@@ -42,6 +42,33 @@ func GetColor(color string) tcell.Style {
 	return st
 }
 
+// GetColorschemeStyle looks up a colorscheme group with dotted-prefix fallback.
+func GetColorschemeStyle(color string) (tcell.Style, bool) {
+	if color == "" {
+		return DefStyle, false
+	}
+	st := DefStyle
+	found := false
+	groups := strings.Split(color, ".")
+	if len(groups) > 1 {
+		curGroup := ""
+		for i, g := range groups {
+			if i != 0 {
+				curGroup += "."
+			}
+			curGroup += g
+			if style, ok := Colorscheme[curGroup]; ok {
+				st = style
+				found = true
+			}
+		}
+	} else if style, ok := Colorscheme[color]; ok {
+		st = style
+		found = true
+	}
+	return st, found
+}
+
 // ColorschemeExists checks if a given colorscheme exists
 func ColorschemeExists(colorschemeName string) bool {
 	return FindRuntimeFile(RTColorscheme, colorschemeName) != nil

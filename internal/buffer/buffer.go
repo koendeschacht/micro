@@ -99,6 +99,8 @@ type SharedBuffer struct {
 	CompletionEnd     Loc
 	GhostText         string
 	GhostAt           Loc
+	SemanticMatch     map[int]SemanticLineMatch
+	SemanticVersion   int
 
 	Messages []*Message
 
@@ -219,6 +221,8 @@ func (b *SharedBuffer) MarkModified(start, end int) {
 		}
 		b.Highlighter.HighlightMatches(b, start, l)
 	}
+
+	b.clearSemanticHighlights()
 
 	for i := start; i <= end; i++ {
 		b.LineArray.invalidateSearchMatches(i)
