@@ -155,12 +155,11 @@ func (s *StatusLine) Display() {
 			return fmt.Append(nil, s.FindOpt(string(option)))
 		} else if bytes.HasPrefix(name, []byte("bind")) {
 			binding := string(name[5:])
-			for k, v := range config.Bindings["buffer"] {
-				if v == binding {
-					return []byte(k)
-				}
+			resolved := bindingLabelForAction(binding)
+			if resolved == "" {
+				return []byte("null")
 			}
-			return []byte("null")
+			return []byte(resolved)
 		} else {
 			if fn, ok := statusInfo[string(name)]; ok {
 				return []byte(fn(s.win.Buf))

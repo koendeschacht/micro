@@ -9,6 +9,7 @@ import (
 	"github.com/micro-editor/micro/v2/internal/clipboard"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
+	"github.com/micro-editor/micro/v2/internal/keymenu"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/shell"
 	"github.com/micro-editor/terminal"
@@ -31,6 +32,7 @@ func TermKeyActionGeneral(a TermKeyAction) PaneKeyAction {
 
 func TermMapEvent(k Event, action string) {
 	config.Bindings["terminal"][k.Name()] = action
+	keymenu.SetBinding("terminal", k.Name(), action, keyMenuSequenceFromEvent(k))
 
 	switch e := k.(type) {
 	case KeyEvent, KeySequenceEvent:

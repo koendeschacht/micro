@@ -8,6 +8,7 @@ import (
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
 	"github.com/micro-editor/micro/v2/internal/info"
+	"github.com/micro-editor/micro/v2/internal/keymenu"
 	"github.com/micro-editor/micro/v2/internal/util"
 )
 
@@ -23,6 +24,7 @@ func init() {
 
 func InfoMapEvent(k Event, action string) {
 	config.Bindings["command"][k.Name()] = action
+	keymenu.SetBinding("command", k.Name(), action, keyMenuSequenceFromEvent(k))
 
 	switch e := k.(type) {
 	case KeyEvent, KeySequenceEvent:
@@ -90,6 +92,13 @@ func NewInfoBar() *InfoPane {
 	ib := info.NewBuffer()
 	w := display.NewInfoWindow(ib)
 	return NewInfoPane(ib, w, nil)
+}
+
+func (h *InfoPane) KeyMenuLineCount() int {
+	if win, ok := h.BWindow.(*display.InfoWindow); ok {
+		return win.KeyMenuLineCount()
+	}
+	return 0
 }
 
 func (h *InfoPane) Close() {

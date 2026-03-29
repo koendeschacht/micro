@@ -11,6 +11,7 @@ import (
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
+	"github.com/micro-editor/micro/v2/internal/keymenu"
 	ulua "github.com/micro-editor/micro/v2/internal/lua"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/util"
@@ -92,6 +93,7 @@ func LuaAction(fn string, k Event) BufAction {
 // BufMapEvent maps an event to an action
 func BufMapEvent(k Event, action string) {
 	config.Bindings["buffer"][k.Name()] = action
+	keymenu.SetBinding("buffer", k.Name(), action, keyMenuSequenceFromEvent(k))
 
 	var actionfns []BufAction
 	var names []string

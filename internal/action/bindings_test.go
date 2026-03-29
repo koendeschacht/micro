@@ -1,6 +1,7 @@
 package action
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
@@ -8,6 +9,7 @@ import (
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
 	"github.com/micro-editor/micro/v2/internal/info"
+	"github.com/micro-editor/micro/v2/internal/keymenu"
 	ulua "github.com/micro-editor/micro/v2/internal/lua"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -104,6 +106,14 @@ func TestFindEventSupportsCtrlBackspaceBindings(t *testing.T) {
 	assert.Equal(t, keyEvent(tcell.NewEventKey(tcell.KeyBackspace, "", tcell.ModCtrl)), event)
 }
 
+func TestFindEventSupportsCtrlUnderscoreBindings(t *testing.T) {
+	event, err := findEvent("CtrlUnderscore")
+	require.NoError(t, err)
+
+	assert.Equal(t, KeyEvent{code: tcell.KeyRune, mod: tcell.ModCtrl, r: '_'}, event)
+	assert.Equal(t, keyEvent(tcell.NewEventKey(tcell.KeyRune, "_", tcell.ModCtrl)), event)
+}
+
 func TestKeyEventKeepsCtrlRuneFromKittyCSIU(t *testing.T) {
 	assert.Equal(t,
 		KeyEvent{code: tcell.KeyRune, mod: tcell.ModCtrl, r: 'j'},
@@ -134,4 +144,50 @@ func TestBufPaneBracketedPasteBuffersText(t *testing.T) {
 	assert.Equal(t, "a\nb", string(b.Bytes()))
 	assert.True(t, h.Undo())
 	assert.Equal(t, "", string(b.Bytes()))
+}
+
+func TestRootKeyMenuHidesSimpleNavigationAndMouseBindings(t *testing.T) {
+	config.InitRuntimeFiles(false)
+	config.InitGlobalSettings()
+	config.SetUserBindings(nil)
+	InitBindings()
+
+	entries := keyMenuEntriesForPrefix(nil)
+	var labels []string
+	for _, entry := range entries {
+		labels = append(labels, entry.Key+" "+entry.Label)
+	}
+	joined := strings.Join(labels, "\n")
+
+	assert.NotContains(t, joined, "^End")
+	assert.NotContains(t, joined, "^Left")
+	assert.NotContains(t, joined, "MouseLeft")
+	assert.NotContains(t, joined, "Backtab")
+	assert.NotContains(t, joined, "Tab")
+	assert.NotContains(t, joined, "Delete")
+	assert.NotContains(t, joined, "Enter")
+	assert.NotContains(t, joined, "^Backspace")
+	assert.NotContains(t, joined, "S-Home")
+	assert.NotContains(t, joined, "S-Left")
+	assert.NotContains(t, joined, "M-Left")
+	assert.NotContains(t, joined, "^S-Left")
+	assert.NotContains(t, joined, "^Home")
+	assert.NotContains(t, joined, "c t r l u n d e r s c o r e")
+	assert.Contains(t, joined, "M-Up move lines up")
+	assert.Contains(t, joined, "M-Down move lines down")
+}
+
+func TestKeyMenuTokenNormalizationForSpecialKeys(t *testing.T) {
+	tests := map[string][]keymenu.Token{
+		"Esc":       {{Key: "Esc"}},
+		"ShiftHome": {{Key: "Home", Shift: true}},
+		"CtrlEnd":   {{Key: "End", Ctrl: true}},
+		"MouseLeft": {{Key: "MouseLeft", Mouse: true}},
+	}
+
+	for binding, expected := range tests {
+		event, err := findEvent(binding)
+		require.NoError(t, err)
+		assert.Equal(t, expected, keyMenuSequenceFromEvent(event), binding)
+	}
 }

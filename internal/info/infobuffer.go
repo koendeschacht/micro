@@ -32,15 +32,22 @@ type InfoBuf struct {
 
 	// Is the current message a message from the gutter
 	HasGutter bool
-	KeyMenu   []string
+	KeyMenu   []KeyMenuEntry
 
 	PromptCallback func(resp string, canceled bool)
 	EventCallback  func(resp string)
 	YNCallback     func(yes bool, canceled bool)
 }
 
-func (i *InfoBuf) SetKeyMenu(lines []string) {
-	i.KeyMenu = append(i.KeyMenu[:0], lines...)
+type KeyMenuEntry struct {
+	Key   string
+	Label string
+}
+
+var RootKeyMenuEntries func() []KeyMenuEntry
+
+func (i *InfoBuf) SetKeyMenu(entries []KeyMenuEntry) {
+	i.KeyMenu = append(i.KeyMenu[:0], entries...)
 }
 
 func (i *InfoBuf) ClearKeyMenu() {

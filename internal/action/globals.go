@@ -1,6 +1,10 @@
 package action
 
-import "github.com/micro-editor/micro/v2/internal/buffer"
+import (
+	"github.com/micro-editor/micro/v2/internal/buffer"
+	"github.com/micro-editor/micro/v2/internal/config"
+	"github.com/micro-editor/micro/v2/internal/info"
+)
 
 // InfoBar is the global info bar.
 var InfoBar *InfoPane
@@ -11,6 +15,15 @@ var LogBufPane *BufPane
 // InitGlobals initializes the log buffer and the info bar
 func InitGlobals() {
 	InfoBar = NewInfoBar()
+	config.KeyMenuLineCount = func() int {
+		if InfoBar == nil {
+			return 0
+		}
+		return InfoBar.KeyMenuLineCount()
+	}
+	info.RootKeyMenuEntries = func() []info.KeyMenuEntry {
+		return keyMenuEntriesForPrefix(nil)
+	}
 	buffer.LogBuf = buffer.NewBufferFromString("", "", buffer.BTLog)
 	buffer.LogBuf.SetName("Log")
 }

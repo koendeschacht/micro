@@ -1,13 +1,13 @@
 package display
 
 import (
+	"github.com/gdamore/tcell/v3"
 	runewidth "github.com/mattn/go-runewidth"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/info"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/util"
-	"github.com/gdamore/tcell/v3"
 )
 
 type InfoWindow struct {
@@ -27,6 +27,28 @@ func (i *InfoWindow) errStyle() tcell.Style {
 	}
 
 	return errStyle
+}
+
+func (i *InfoWindow) keyMenuKeyStyle() tcell.Style {
+	style := i.defStyle()
+	accent := style.GetForeground()
+	bold := false
+	italic := false
+	underline := false
+
+	if accentStyle, ok := config.Colorscheme["statement"]; ok {
+		accent = accentStyle.GetForeground()
+		bold = accentStyle.HasBold()
+		italic = accentStyle.HasItalic()
+		underline = accentStyle.HasUnderline()
+	} else if accentStyle, ok := config.Colorscheme["tabbar.active"]; ok {
+		accent = accentStyle.GetForeground()
+		bold = accentStyle.HasBold()
+		italic = accentStyle.HasItalic()
+		underline = accentStyle.HasUnderline()
+	}
+
+	return style.Foreground(accent).Bold(bold).Italic(italic).Underline(underline)
 }
 
 func (i *InfoWindow) defStyle() tcell.Style {
@@ -163,26 +185,51 @@ func (i *InfoWindow) displayBuffer() {
 	}
 }
 
-var keydisplay = []string{"^Q Quit, ^S Save, ^O Open, ^G Help, ^E Command Bar, ^K Cut Line", "^F Find, ^Z Undo, ^Y Redo, ^A Select All, ^D Duplicate Line, ^T New Tab"}
-
-func (i *InfoWindow) keyMenuLines() []string {
+func (i *InfoWindow) keyMenuEntries() []info.KeyMenuEntry {
 	if len(i.KeyMenu) > 0 {
 		return i.KeyMenu
 	}
-	return keydisplay
+	if info.RootKeyMenuEntries != nil {
+		return info.RootKeyMenuEntries()
+	}
+	return nil
+}
+
+func (i *InfoWindow) keyMenuLayout() [][]info.KeyMenuEntry {
+	return layoutKeyMenuEntries(i.keyMenuEntries(), i.Width)
+}
+
+func (i *InfoWindow) KeyMenuLineCount() int {
+	return len(i.keyMenuLayout())
 }
 
 func (i *InfoWindow) displayKeyMenu() {
-	// TODO: maybe make this based on the actual keybindings
-	lines := i.keyMenuLines()
+	lines := i.keyMenuLayout()
+	keyStyle := i.keyMenuKeyStyle()
+	baseStyle := i.defStyle()
 
 	for y := 0; y < len(lines); y++ {
-		for x := 0; x < i.Width; x++ {
-			if x < len(lines[y]) {
-				screen.SetContent(x, i.Y-len(lines)+y, rune(lines[y][x]), nil, i.defStyle())
-			} else {
-				screen.SetContent(x, i.Y-len(lines)+y, ' ', nil, i.defStyle())
+		x := 0
+		for _, entry := range lines[y] {
+			if x > 0 {
+				for _, r := range "  " {
+					screen.SetContent(x, i.Y-len(lines)+y, r, nil, baseStyle)
+					x++
+				}
 			}
+			for _, r := range entry.Key {
+				screen.SetContent(x, i.Y-len(lines)+y, r, nil, keyStyle)
+				x++
+			}
+			screen.SetContent(x, i.Y-len(lines)+y, ' ', nil, baseStyle)
+			x++
+			for _, r := range entry.Label {
+				screen.SetContent(x, i.Y-len(lines)+y, r, nil, baseStyle)
+				x++
+			}
+		}
+		for ; x < i.Width; x++ {
+			screen.SetContent(x, i.Y-len(lines)+y, ' ', nil, baseStyle)
 		}
 	}
 }
@@ -260,7 +307,7 @@ func (i *InfoWindow) Display() {
 		}
 		keymenuOffset := 0
 		if config.GetGlobalOption("keymenu").(bool) {
-			keymenuOffset = len(i.keyMenuLines())
+			keymenuOffset = len(i.keyMenuLayout())
 		}
 
 		draw := func(r rune, s tcell.Style) {

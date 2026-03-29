@@ -14,6 +14,7 @@ import (
 	"github.com/gdamore/tcell/v3"
 	"github.com/micro-editor/json5"
 	"github.com/micro-editor/micro/v2/internal/config"
+	"github.com/micro-editor/micro/v2/internal/keymenu"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/util"
 )
@@ -53,6 +54,9 @@ func InitBindings() {
 			screen.TermMessage("Error reading bindings.json:", err.Error())
 		}
 	}
+
+	config.SetUserBindings(parsed)
+	keymenu.ResetBindings()
 
 	for p, bind := range Binder {
 		defaults := DefaultBindings(p)
@@ -208,6 +212,14 @@ modSearch:
 			code: tcell.KeyRune,
 			mod:  modifiers,
 			r:    ' ',
+		}, true
+	}
+
+	if k == "Underscore" {
+		return KeyEvent{
+			code: tcell.KeyRune,
+			mod:  modifiers,
+			r:    '_',
 		}, true
 	}
 

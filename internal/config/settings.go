@@ -449,6 +449,8 @@ func GetGlobalOption(name string) any {
 	return GlobalSettings[name]
 }
 
+var KeyMenuLineCount func() int
+
 func defaultFileFormat() string {
 	if runtime.GOOS == "windows" {
 		return "dos"
@@ -471,7 +473,11 @@ func GetInfoBarOffset() int {
 		offset++
 	}
 	if GetGlobalOption("keymenu").(bool) {
-		offset += 2
+		if KeyMenuLineCount != nil {
+			offset += KeyMenuLineCount()
+		} else {
+			offset += 2
+		}
 	}
 	return offset
 }
