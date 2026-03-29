@@ -96,6 +96,26 @@ func TestFindEventSupportsCtrlSpaceBindings(t *testing.T) {
 	assert.Equal(t, KeyEvent{code: tcell.KeyRune, mod: tcell.ModCtrl, r: ' '}, event)
 }
 
+func TestFindEventSupportsCtrlBackspaceBindings(t *testing.T) {
+	event, err := findEvent("Ctrl-Backspace")
+	require.NoError(t, err)
+
+	assert.Equal(t, KeyEvent{code: tcell.KeyBackspace, mod: tcell.ModCtrl}, event)
+	assert.Equal(t, keyEvent(tcell.NewEventKey(tcell.KeyBackspace, "", tcell.ModCtrl)), event)
+}
+
+func TestKeyEventKeepsCtrlRuneFromKittyCSIU(t *testing.T) {
+	assert.Equal(t,
+		KeyEvent{code: tcell.KeyRune, mod: tcell.ModCtrl, r: 'j'},
+		keyEvent(tcell.NewEventKey(tcell.KeyRune, "j", tcell.ModCtrl)),
+	)
+
+	assert.Equal(t,
+		KeyEvent{code: tcell.KeyRune, mod: tcell.ModCtrl | tcell.ModShift, r: 'J'},
+		keyEvent(tcell.NewEventKey(tcell.KeyRune, "J", tcell.ModCtrl|tcell.ModShift)),
+	)
+}
+
 func TestBufPaneBracketedPasteBuffersText(t *testing.T) {
 	config.InitRuntimeFiles(false)
 	config.InitGlobalSettings()

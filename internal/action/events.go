@@ -45,6 +45,19 @@ func keyEvent(e *tcell.EventKey) KeyEvent {
 }
 
 func normalizeKey(key tcell.Key, mod tcell.ModMask, str string) (tcell.Key, tcell.ModMask, rune) {
+	if key == tcell.KeyRune && mod&tcell.ModCtrl != 0 && str != "" {
+		r, _ := utf8.DecodeRuneInString(str)
+		if mod&tcell.ModShift != 0 && r >= 'a' && r <= 'z' {
+			r -= 'a' - 'A'
+		}
+		if r >= 'a' && r <= 'z' {
+			return key, mod, r
+		}
+		if r >= 'A' && r <= 'Z' {
+			return key, mod, r
+		}
+	}
+
 	if r, ok := legacyCtrlRune(key); ok {
 		return tcell.KeyRune, mod | tcell.ModCtrl, r
 	}
