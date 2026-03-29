@@ -3,7 +3,7 @@ package action
 import (
 	"bytes"
 
-	"github.com/micro-editor/tcell/v2"
+	"github.com/gdamore/tcell/v3"
 )
 
 type PaneKeyAction func(Pane) bool
@@ -144,7 +144,7 @@ func (k *KeyTree) RegisterMouseBinding(e Event, a PaneMouseAction) {
 
 func (k *KeyTree) registerBinding(e Event, a TreeAction) {
 	switch ev := e.(type) {
-	case KeyEvent, MouseEvent, RawEvent:
+	case KeyEvent, MouseEvent:
 		newNode, ok := k.root.children[e]
 		if !ok {
 			newNode = NewKeyTreeNode()

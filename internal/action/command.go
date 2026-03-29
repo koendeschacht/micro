@@ -126,8 +126,7 @@ func (h *BufPane) RetabCmd(args []string) {
 	h.Buf.Retab()
 }
 
-// RawCmd opens a new raw view which displays the escape sequences micro
-// is receiving in real-time
+// RawCmd opens a debug view showing the decoded events micro receives.
 func (h *BufPane) RawCmd(args []string) {
 	width, height := screen.Screen.Size()
 	iOffset := config.GetInfoBarOffset()
@@ -605,7 +604,11 @@ func doSetGlobalOptionNative(option string, nativeValue any) error {
 			config.SetAutoTime(0)
 		}
 	} else if option == "paste" {
-		screen.Screen.SetPaste(nativeValue.(bool))
+		if nativeValue.(bool) {
+			screen.Screen.EnablePaste()
+		} else {
+			screen.Screen.DisablePaste()
+		}
 	} else if option == "clipboard" {
 		m := clipboard.SetMethod(nativeValue.(string))
 		err := clipboard.Initialize(m)
@@ -830,7 +833,7 @@ func (h *BufPane) ShowCmd(args []string) {
 }
 
 func parseKeyArg(arg string) string {
-	// If this is a raw escape sequence, convert it to its raw byte form
+	// Decode escaped ESC bytes in command arguments.
 	return strings.ReplaceAll(arg, "\\x1b", "\x1b")
 }
 

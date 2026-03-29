@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gdamore/tcell/v3"
 	"github.com/go-errors/errors"
 	isatty "github.com/mattn/go-isatty"
 	"github.com/micro-editor/micro/v2/internal/action"
@@ -25,7 +26,6 @@ import (
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/shell"
 	"github.com/micro-editor/micro/v2/internal/util"
-	"github.com/micro-editor/tcell/v2"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -456,8 +456,17 @@ func main() {
 	go func() {
 		for {
 			screen.Lock()
-			e := screen.Screen.PollEvent()
+			scr := screen.Screen
 			screen.Unlock()
+			if scr == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+
+			e, ok := <-scr.EventQ()
+			if !ok {
+				return
+			}
 			if e != nil {
 				screen.Events <- e
 			}
@@ -524,11 +533,6 @@ func DoEvent() {
 
 	if e, ok := event.(*tcell.EventError); ok {
 		log.Println("tcell event error: ", e.Error())
-
-		if e.Err() == io.EOF {
-			// shutdown due to terminal closing/becoming inaccessible
-			exit(0)
-		}
 		return
 	}
 

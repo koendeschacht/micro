@@ -35,11 +35,13 @@ following in the `bindings.json` file.
 }
 ```
 
-**Note:** The syntax `<Modifier><key>` is equivalent to `<Modifier>-<key>`. In
-addition, `Ctrl-Shift` bindings are not supported by terminals, and are the same
-as simply `Ctrl` bindings. This means that `CtrlG`, `Ctrl-G`, and `Ctrl-g` all
-mean the same thing. However, for `Alt` this is not the case: `AltG` and `Alt-G`
-mean `Alt-Shift-g`, while `Alt-g` does not require the Shift modifier.
+**Note:** The syntax `<Modifier><key>` is equivalent to `<Modifier>-<key>`. Modern
+terminals that support CSI-u / kitty keyboard reporting can send distinct
+`Ctrl-Shift` bindings, so combinations like `Ctrl-Shift-k` can be bound in micro.
+On terminals without that support, many `Ctrl-Shift` combinations still collapse
+to plain `Ctrl`. This means that `CtrlG`, `Ctrl-G`, and `Ctrl-g` all mean the
+same thing. However, for `Alt` this is not the case: `AltG` and `Alt-G` mean
+`Alt-Shift-g`, while `Alt-g` does not require the Shift modifier.
 
 Micro also supports a configurable `<leader>` token in key sequences. By default
 it expands to `Ctrl-k`, and the key can be changed with the `leader` setting.
@@ -146,7 +148,7 @@ in this example would be `"Alt-q": "lua:initlua.bar"`).
 The currently active bufpane is passed to the lua function as the argument. If
 the key is a mouse button, e.g. `MouseLeft` or `MouseWheelUp`, the mouse event
 info is passed to the lua function as the second argument, of type
-`*tcell.EventMouse`. See https://pkg.go.dev/github.com/micro-editor/tcell/v2#EventMouse
+`*tcell.EventMouse`. See https://pkg.go.dev/github.com/gdamore/tcell/v3#EventMouse
 for the description of this type and its methods.
 
 The return value of the lua function defines whether the action has succeeded.
@@ -157,49 +159,12 @@ the same way as regular actions as described above, for example:
 "Alt-q": "lua:initlua.bar|Quit"
 ```
 
-## Binding raw escape sequences
+## Modern terminal protocols
 
-Only read this section if you are interested in binding keys that aren't on the
-list of supported keys for binding.
-
-One of the drawbacks of using a terminal-based editor is that the editor must
-get all of its information about key events through the terminal. The terminal
-sends these events in the form of escape sequences often (but not always)
-starting with `0x1b`.
-
-For example, if micro reads `\x1b[1;5D`, on most terminals this will mean the
-user pressed CtrlLeft.
-
-For many key chords though, the terminal won't send any escape code or will
-send an escape code already in use. For example for `CtrlBackspace`, my
-terminal sends `\u007f` (note this doesn't start with `0x1b`), which it also
-sends for `Backspace` meaning micro can't bind `CtrlBackspace`.
-
-However, some terminals do allow you to bind keys to send specific escape
-sequences you define. Then from micro you can directly bind those escape
-sequences to actions. For example, to bind `CtrlBackspace` you can instruct
-your terminal to send `\x1bctrlback` and then bind it in `bindings.json`:
-
-```json
-{
-    "\u001bctrlback": "DeleteWordLeft"
-}
-```
-
-Here are some instructions for sending raw escapes in different terminals
-
-### iTerm2
-
-In iTerm2, you can do this in  `Preferences->Profiles->Keys` then click the
-`+`, input your keybinding, and for the `Action` select `Send Escape Sequence`.
-For the above example your would type `ctrlback` into the box (the `\x1b`) is
-automatically sent by iTerm2.
-
-### Linux using loadkeys
-
-You can do this in linux using the loadkeys program.
-
-Coming soon!
+Micro now relies on modern terminal keyboard reporting instead of user-defined
+raw escape bindings. If you want more distinct bindings such as
+`Ctrl-Shift-letter`, use a terminal that supports CSI-u / kitty keyboard
+reporting.
 
 ## Unbinding keys
 
@@ -455,7 +420,7 @@ F61
 F62
 F63
 F64
-CtrlSpace
+Ctrl-Space
 Ctrl-a
 Ctrl-b
 Ctrl-c
@@ -482,11 +447,11 @@ Ctrl-w
 Ctrl-x
 Ctrl-y
 Ctrl-z
-CtrlLeftSq
-CtrlBackslash
-CtrlRightSq
-CtrlCarat
-CtrlUnderscore
+Ctrl-[
+Ctrl-\\
+Ctrl-]
+Ctrl-^
+Ctrl-_
 Backspace
 OldBackspace
 Tab
@@ -763,5 +728,5 @@ This is why in the default keybindings you can see `AltShiftLeft` instead of
 Please note that terminal emulators are strange applications and micro only
 receives key events that the terminal decides to send. Some terminal emulators
 may not send certain events even if this document says micro can receive the
-event. To see exactly what micro receives from the terminal when you press a
-key, run the `> raw` command.
+event. To inspect exactly which decoded events micro receives from your
+terminal, run the `> raw` command.

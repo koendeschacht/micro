@@ -4,12 +4,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gdamore/tcell/v3"
 	runewidth "github.com/mattn/go-runewidth"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/util"
-	"github.com/micro-editor/tcell/v2"
 )
 
 // The BufWindow provides a way of displaying a certain section of a buffer.
@@ -321,7 +321,7 @@ func (w *BufWindow) drawDiffGutter(backgroundStyle tcell.Style, softwrapped bool
 
 	style := backgroundStyle
 	if s, ok := config.Colorscheme[styleName]; ok {
-		foreground, _, _ := s.Decompose()
+		foreground := s.GetForeground()
 		style = style.Foreground(foreground)
 	}
 
@@ -928,7 +928,7 @@ func (w *BufWindow) displayBuffer() {
 			}
 
 			if s, ok := config.Colorscheme["indent-char"]; ok {
-				fg, _, _ := s.Decompose()
+				fg := s.GetForeground()
 				style = style.Foreground(fg)
 			}
 
@@ -936,11 +936,11 @@ func (w *BufWindow) displayBuffer() {
 			if b.Settings["hltaberrors"].(bool) && bloc.X < leadingwsEnd {
 				if s, ok := config.Colorscheme["tab-error"]; ok {
 					if b.Settings["tabstospaces"].(bool) && r == '\t' {
-						fg, _, _ := s.Decompose()
+						fg := s.GetForeground()
 						style = style.Background(fg)
 						preservebg = true
 					} else if !b.Settings["tabstospaces"].(bool) && r == ' ' {
-						fg, _, _ := s.Decompose()
+						fg := s.GetForeground()
 						style = style.Background(fg)
 						preservebg = true
 					}
@@ -958,7 +958,7 @@ func (w *BufWindow) displayBuffer() {
 							}
 						}
 						if hl {
-							fg, _, _ := s.Decompose()
+							fg := s.GetForeground()
 							style = style.Background(fg)
 							preservebg = true
 						}
@@ -989,8 +989,8 @@ func (w *BufWindow) displayBuffer() {
 					}
 				}
 
-				_, origBg, _ := style.Decompose()
-				_, defBg, _ := config.DefStyle.Decompose()
+				origBg := style.GetBackground()
+				defBg := config.DefStyle.GetBackground()
 
 				// syntax or hlsearch highlighting with non-default background takes precedence
 				// over cursor-line and color-column
@@ -1013,7 +1013,7 @@ func (w *BufWindow) displayBuffer() {
 					if b.Settings["cursorline"].(bool) && w.active && !preservebg &&
 						!c.HasSelection() && c.Y == bloc.Y {
 						if s, ok := config.Colorscheme["cursor-line"]; ok {
-							fg, _, _ := s.Decompose()
+							fg := s.GetForeground()
 							style = style.Background(fg)
 						}
 					}
@@ -1029,7 +1029,7 @@ func (w *BufWindow) displayBuffer() {
 
 				if s, ok := config.Colorscheme["color-column"]; ok {
 					if colorcolumn != 0 && vloc.X-w.gutterOffset+w.StartCol == colorcolumn && !preservebg {
-						fg, _, _ := s.Decompose()
+						fg := s.GetForeground()
 						style = style.Background(fg)
 					}
 				}
@@ -1174,7 +1174,7 @@ func (w *BufWindow) displayBuffer() {
 			if b.Settings["cursorline"].(bool) && w.active &&
 				!c.HasSelection() && c.Y == bloc.Y {
 				if s, ok := config.Colorscheme["cursor-line"]; ok {
-					fg, _, _ := s.Decompose()
+					fg := s.GetForeground()
 					style = style.Background(fg)
 				}
 			}
@@ -1185,7 +1185,7 @@ func (w *BufWindow) displayBuffer() {
 			curStyle := style
 			if s, ok := config.Colorscheme["color-column"]; ok {
 				if colorcolumn != 0 && i-w.gutterOffset+w.StartCol == colorcolumn {
-					fg, _, _ := s.Decompose()
+					fg := s.GetForeground()
 					curStyle = style.Background(fg)
 				}
 			}

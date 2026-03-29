@@ -3,13 +3,14 @@ package action
 import (
 	"errors"
 	"runtime"
+	"strings"
 
+	"github.com/gdamore/tcell/v3"
 	"github.com/micro-editor/micro/v2/internal/clipboard"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/shell"
-	"github.com/micro-editor/tcell/v2"
 	"github.com/micro-editor/terminal"
 )
 
@@ -32,7 +33,7 @@ func TermMapEvent(k Event, action string) {
 	config.Bindings["terminal"][k.Name()] = action
 
 	switch e := k.(type) {
-	case KeyEvent, KeySequenceEvent, RawEvent:
+	case KeyEvent, KeySequenceEvent:
 		termMapKey(e, action)
 	case MouseEvent:
 		termMapMouse(e, action)
@@ -150,22 +151,31 @@ func (t *TermPane) HandleEvent(event tcell.Event) {
 		}
 
 		if t.Status == shell.TTDone {
-			switch e.Key() {
-			case tcell.KeyEscape, tcell.KeyCtrlQ, tcell.KeyEnter:
+			switch {
+			case e.Key() == tcell.KeyEscape:
 				t.Close()
 				t.Quit()
-			default:
+			case ke.code == tcell.KeyRune && ke.mod&tcell.ModCtrl != 0 && strings.EqualFold(string(ke.r), "q"):
+				t.Close()
+				t.Quit()
+			case e.Key() == tcell.KeyEnter:
+				t.Close()
+				t.Quit()
 			}
 		}
-		if e.Key() == tcell.KeyCtrlC && t.HasSelection() {
+		if ke.code == tcell.KeyRune && ke.mod&tcell.ModCtrl != 0 && strings.EqualFold(string(ke.r), "c") && t.HasSelection() {
 			clipboard.Write(t.GetSelection(t.GetView().Width), clipboard.ClipboardReg)
 			InfoBar.Message("Copied selection to clipboard")
 		} else if t.Status != shell.TTDone {
-			t.WriteString(event.EscSeq())
+			t.WriteString(encodeTerminalKey(e, ke))
 		}
-	} else if _, ok := event.(*tcell.EventPaste); ok {
+	} else if e, ok := event.(*tcell.EventPaste); ok {
 		if t.Status != shell.TTDone {
-			t.WriteString(event.EscSeq())
+			if e.Start() {
+				t.WriteString("\x1b[200~")
+			} else if e.End() {
+				t.WriteString("\x1b[201~")
+			}
 		}
 	} else if e, ok := event.(*tcell.EventMouse); !ok || t.State.Mode(terminal.ModeMouseMask) {
 		// t.WriteString(event.EscSeq())
@@ -195,6 +205,83 @@ func (t *TermPane) HandleEvent(event tcell.Event) {
 			}
 			t.mouseReleased = true
 		}
+	}
+}
+
+func encodeTerminalKey(e *tcell.EventKey, ke KeyEvent) string {
+	if ke.code == tcell.KeyRune {
+		if ctrl, ok := ctrlRune(ke.r); ok && ke.mod&tcell.ModCtrl != 0 {
+			if ke.mod&tcell.ModAlt != 0 {
+				return "\x1b" + string(ctrl)
+			}
+			return string(ctrl)
+		}
+
+		if e.Str() == "" {
+			return ""
+		}
+		if ke.mod&tcell.ModAlt != 0 {
+			return "\x1b" + e.Str()
+		}
+		return e.Str()
+	}
+
+	switch e.Key() {
+	case tcell.KeyEnter:
+		return "\r"
+	case tcell.KeyTab:
+		return "\t"
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		return "\x7f"
+	case tcell.KeyEscape:
+		return "\x1b"
+	case tcell.KeyUp:
+		return "\x1b[A"
+	case tcell.KeyDown:
+		return "\x1b[B"
+	case tcell.KeyRight:
+		return "\x1b[C"
+	case tcell.KeyLeft:
+		return "\x1b[D"
+	case tcell.KeyHome:
+		return "\x1b[H"
+	case tcell.KeyEnd:
+		return "\x1b[F"
+	case tcell.KeyPgUp:
+		return "\x1b[5~"
+	case tcell.KeyPgDn:
+		return "\x1b[6~"
+	case tcell.KeyInsert:
+		return "\x1b[2~"
+	case tcell.KeyDelete:
+		return "\x1b[3~"
+	}
+
+	return ""
+}
+
+func ctrlRune(r rune) (rune, bool) {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return r - 'a' + 1, true
+	case r >= 'A' && r <= 'Z':
+		return r - 'A' + 1, true
+	case r == ' ':
+		return 0, true
+	case r == '[':
+		return 27, true
+	case r == '\\':
+		return 28, true
+	case r == ']':
+		return 29, true
+	case r == '^':
+		return 30, true
+	case r == '_':
+		return 31, true
+	case r == '?':
+		return 127, true
+	default:
+		return 0, false
 	}
 }
 

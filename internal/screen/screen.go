@@ -1,13 +1,13 @@
 package screen
 
 import (
-	"errors"
 	"log"
 	"os"
 	"sync"
 
+	"github.com/gdamore/tcell/v3"
+	"github.com/gdamore/tcell/v3/vt"
 	"github.com/micro-editor/micro/v2/internal/config"
-	"github.com/micro-editor/tcell/v2"
 )
 
 // Screen is the tcell screen we use to draw to the terminal
@@ -31,12 +31,6 @@ var lock sync.Mutex
 // drawChan is a channel that will cause the screen to redraw when
 // written to even if no event user event has occurred
 var drawChan chan bool
-
-// rawSeq is the list of raw escape sequences that are bound to some actions
-// via keybindings and thus should be parsed by tcell. We need to register
-// them in tcell every time we reinitialize the screen, so we need to remember
-// them in a list
-var rawSeq = make([]string, 0)
 
 // Lock locks the screen lock
 func Lock() {
@@ -78,7 +72,7 @@ var lastCursor screenCell
 // This keeps track of the most recent fake cursor location and resets it when
 // a new fake cursor location is specified
 func ShowFakeCursor(x, y int) {
-	r, combc, style, _ := Screen.GetContent(x, y)
+	r, combc, style := getContent(x, y)
 	Screen.SetContent(lastCursor.x, lastCursor.y, lastCursor.r, lastCursor.combc, lastCursor.style)
 	Screen.SetContent(x, y, r, combc, config.DefStyle.Reverse(true))
 
@@ -96,8 +90,17 @@ func UseFake() bool {
 // reset previous locations of the cursor
 // Fake cursors are also necessary to display multiple cursors
 func ShowFakeCursorMulti(x, y int) {
-	r, _, _, _ := Screen.GetContent(x, y)
+	r, _, _ := getContent(x, y)
 	Screen.SetContent(x, y, r, nil, config.DefStyle.Reverse(true))
+}
+
+func getContent(x, y int) (rune, []rune, tcell.Style) {
+	str, style, _ := Screen.Get(x, y)
+	runes := []rune(str)
+	if len(runes) == 0 {
+		return ' ', nil, style
+	}
+	return runes[0], runes[1:], style
 }
 
 // ShowCursor puts the cursor at the given location using a fake cursor
@@ -114,10 +117,6 @@ func ShowCursor(x, y int) {
 // SetContent sets a cell at a point on the screen and makes sure that it is
 // synced with the last cursor location
 func SetContent(x, y int, mainc rune, combc []rune, style tcell.Style) {
-	if !Screen.CanDisplay(mainc, true) {
-		mainc = '�'
-	}
-
 	Screen.SetContent(x, y, mainc, combc, style)
 	if UseFake() && lastCursor.x == x && lastCursor.y == y {
 		lastCursor.r = mainc
@@ -126,32 +125,12 @@ func SetContent(x, y int, mainc rune, combc []rune, style tcell.Style) {
 	}
 }
 
-// RegisterRawSeq registers a raw escape sequence that should be parsed by tcell
+// RegisterRawSeq is a no-op. Raw escape bindings are not supported on tcell v3.
 func RegisterRawSeq(r string) {
-	for _, seq := range rawSeq {
-		if seq == r {
-			return
-		}
-	}
-	rawSeq = append(rawSeq, r)
-
-	if Screen != nil {
-		Screen.RegisterRawSeq(r)
-	}
 }
 
-// UnregisterRawSeq unregisters a raw escape sequence that should be parsed by tcell
+// UnregisterRawSeq is a no-op. Raw escape bindings are not supported on tcell v3.
 func UnregisterRawSeq(r string) {
-	for i, seq := range rawSeq {
-		if seq == r {
-			rawSeq[i] = rawSeq[len(rawSeq)-1]
-			rawSeq = rawSeq[:len(rawSeq)-1]
-		}
-	}
-
-	if Screen != nil {
-		Screen.UnregisterRawSeq(r)
-	}
 }
 
 // TempFini shuts the screen down temporarily
@@ -220,7 +199,11 @@ func Init() error {
 		return err
 	}
 
-	Screen.SetPaste(config.GetGlobalOption("paste").(bool))
+	if config.GetGlobalOption("paste").(bool) {
+		Screen.EnablePaste()
+	} else {
+		Screen.DisablePaste()
+	}
 
 	// restore TERM
 	if modifiedTerm {
@@ -231,33 +214,121 @@ func Init() error {
 		Screen.EnableMouse()
 	}
 
-	for _, r := range rawSeq {
-		Screen.RegisterRawSeq(r)
-	}
-
 	return nil
 }
 
+type SimulationScreen interface {
+	tcell.Screen
+	InjectResize()
+	InjectKey(tcell.Key, string, tcell.ModMask)
+	InjectKeyBytes([]byte)
+	InjectMouse(int, int, tcell.ButtonMask, tcell.ModMask)
+}
+
+type simScreen struct {
+	tcell.Screen
+}
+
+func (s *simScreen) InjectResize() {
+	width, height := s.Size()
+	s.EventQ() <- tcell.NewEventResize(width, height)
+}
+
+func (s *simScreen) InjectKey(key tcell.Key, str string, mod tcell.ModMask) {
+	if r, ok := ctrlKeyRune(key); ok {
+		key = tcell.KeyRune
+		str = string(r)
+		mod |= tcell.ModCtrl
+	}
+	s.EventQ() <- tcell.NewEventKey(key, str, mod)
+}
+
+func (s *simScreen) InjectKeyBytes(data []byte) {
+	for _, r := range string(data) {
+		s.EventQ() <- tcell.NewEventKey(tcell.KeyRune, string(r), tcell.ModNone)
+	}
+}
+
+func (s *simScreen) InjectMouse(x, y int, buttons tcell.ButtonMask, mod tcell.ModMask) {
+	s.EventQ() <- tcell.NewEventMouse(x, y, buttons, mod)
+}
+
+func ctrlKeyRune(key tcell.Key) (rune, bool) {
+	switch key {
+	case tcell.KeyCtrlA:
+		return 'a', true
+	case tcell.KeyCtrlB:
+		return 'b', true
+	case tcell.KeyCtrlC:
+		return 'c', true
+	case tcell.KeyCtrlD:
+		return 'd', true
+	case tcell.KeyCtrlE:
+		return 'e', true
+	case tcell.KeyCtrlF:
+		return 'f', true
+	case tcell.KeyCtrlG:
+		return 'g', true
+	case tcell.KeyCtrlI:
+		return 'i', true
+	case tcell.KeyCtrlJ:
+		return 'j', true
+	case tcell.KeyCtrlK:
+		return 'k', true
+	case tcell.KeyCtrlL:
+		return 'l', true
+	case tcell.KeyCtrlN:
+		return 'n', true
+	case tcell.KeyCtrlO:
+		return 'o', true
+	case tcell.KeyCtrlP:
+		return 'p', true
+	case tcell.KeyCtrlQ:
+		return 'q', true
+	case tcell.KeyCtrlR:
+		return 'r', true
+	case tcell.KeyCtrlS:
+		return 's', true
+	case tcell.KeyCtrlT:
+		return 't', true
+	case tcell.KeyCtrlU:
+		return 'u', true
+	case tcell.KeyCtrlV:
+		return 'v', true
+	case tcell.KeyCtrlW:
+		return 'w', true
+	case tcell.KeyCtrlX:
+		return 'x', true
+	case tcell.KeyCtrlY:
+		return 'y', true
+	case tcell.KeyCtrlZ:
+		return 'z', true
+	}
+
+	return 0, false
+}
+
 // InitSimScreen initializes a simulation screen for testing purposes
-func InitSimScreen() (tcell.SimulationScreen, error) {
+func InitSimScreen() (SimulationScreen, error) {
 	drawChan = make(chan bool, 8)
 
-	// Initilize tcell
-	var err error
-	s := tcell.NewSimulationScreen("")
-	if s == nil {
-		return nil, errors.New("Failed to get a simulation screen")
+	term := vt.NewMockTerm(vt.MockOptSize{X: 80, Y: 24})
+	s, err := tcell.NewTerminfoScreenFromTty(term)
+	if err != nil {
+		return nil, err
 	}
 	if err = s.Init(); err != nil {
 		return nil, err
 	}
 
-	s.SetSize(80, 24)
 	Screen = s
+	for len(s.EventQ()) > 0 {
+		<-s.EventQ()
+	}
 
 	if config.GetGlobalOption("mouse").(bool) {
 		Screen.EnableMouse()
 	}
 
-	return s, nil
+	return &simScreen{Screen: s}, nil
 }

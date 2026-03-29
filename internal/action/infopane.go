@@ -3,12 +3,12 @@ package action
 import (
 	"bytes"
 
+	"github.com/gdamore/tcell/v3"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
 	"github.com/micro-editor/micro/v2/internal/info"
 	"github.com/micro-editor/micro/v2/internal/util"
-	"github.com/micro-editor/tcell/v2"
 )
 
 type InfoKeyAction func(*InfoPane)
@@ -25,7 +25,7 @@ func InfoMapEvent(k Event, action string) {
 	config.Bindings["command"][k.Name()] = action
 
 	switch e := k.(type) {
-	case KeyEvent, KeySequenceEvent, RawEvent:
+	case KeyEvent, KeySequenceEvent:
 		infoMapKey(e, action)
 	case MouseEvent:
 		infoMapMouse(e, action)
@@ -107,19 +107,23 @@ func (h *InfoPane) HandleEvent(event tcell.Event) {
 		done := h.DoKeyEvent(ke)
 		hasYN := h.HasYN
 		if e.Key() == tcell.KeyRune && hasYN {
-			y := e.Rune() == 'y' || e.Rune() == 'Y'
-			n := e.Rune() == 'n' || e.Rune() == 'N'
-			if y || n {
-				h.YNResp = y
-				h.DonePrompt(false)
+			if r, ok := firstRune(e.Str()); ok {
+				y := r == 'y' || r == 'Y'
+				n := r == 'n' || r == 'N'
+				if y || n {
+					h.YNResp = y
+					h.DonePrompt(false)
 
-				InfoBindings.ResetEvents(h.infoCursor())
-				InfoBufBindings.ResetEvents(h.infoBufCursor())
+					InfoBindings.ResetEvents(h.infoCursor())
+					InfoBufBindings.ResetEvents(h.infoBufCursor())
+				}
 			}
 		}
 		if e.Key() == tcell.KeyRune && !done && !hasYN {
-			h.DoRuneInsert(e.Rune())
-			done = true
+			if r, ok := firstRune(e.Str()); ok {
+				h.DoRuneInsert(r)
+				done = true
+			}
 		}
 		if done && h.HasPrompt && !hasYN {
 			resp := string(h.LineBytes(0))

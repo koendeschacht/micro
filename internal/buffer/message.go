@@ -3,7 +3,7 @@ package buffer
 import (
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/util"
-	"github.com/micro-editor/tcell/v2"
+	"github.com/gdamore/tcell/v3"
 )
 
 type MsgType int

@@ -6,23 +6,23 @@ import (
 	"os"
 	"testing"
 
+	"github.com/gdamore/tcell/v3"
 	"github.com/go-errors/errors"
 	"github.com/micro-editor/micro/v2/internal/action"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/screen"
-	"github.com/micro-editor/tcell/v2"
 	"github.com/stretchr/testify/assert"
 )
 
 var tempDir string
-var sim tcell.SimulationScreen
+var sim screen.SimulationScreen
 
 func init() {
 	screen.Events = make(chan tcell.Event, 8)
 }
 
-func startup(args []string) (tcell.SimulationScreen, error) {
+func startup(args []string) (screen.SimulationScreen, error) {
 	var err error
 
 	tempDir, err = os.MkdirTemp("", "micro_test")
@@ -62,7 +62,7 @@ func startup(args []string) (tcell.SimulationScreen, error) {
 				}
 			}
 			// Print the stack trace too
-			log.Fatalf(errors.Wrap(err, 2).ErrorStack())
+			log.Fatalf("%s", errors.Wrap(err, 2).ErrorStack())
 		}
 	}()
 
@@ -105,9 +105,10 @@ func cleanup() {
 
 func handleEvent() {
 	screen.Lock()
-	e := screen.Screen.PollEvent()
+	q := screen.Screen.EventQ()
 	screen.Unlock()
-	if e != nil {
+	e, ok := <-q
+	if ok && e != nil {
 		screen.Events <- e
 	}
 
@@ -117,7 +118,11 @@ func handleEvent() {
 }
 
 func injectKey(key tcell.Key, r rune, mod tcell.ModMask) {
-	sim.InjectKey(key, r, mod)
+	str := ""
+	if r != 0 {
+		str = string(r)
+	}
+	sim.InjectKey(key, str, mod)
 	handleEvent()
 }
 

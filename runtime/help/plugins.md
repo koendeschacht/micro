@@ -78,7 +78,7 @@ that micro defines:
 
    If the action is a mouse action, e.g. `MousePress`, the mouse event info
    is passed to the callback as an extra argument of type `*tcell.EventMouse`.
-   See https://pkg.go.dev/github.com/micro-editor/tcell/v2#EventMouse for the
+   See https://pkg.go.dev/github.com/gdamore/tcell/v3#EventMouse for the
    description of this type and its methods.
 
 * `preAction(bufpane)`: runs immediately before `Action` is triggered

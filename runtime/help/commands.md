@@ -144,10 +144,9 @@ quotes here but these are not necessary when entering the command in micro.
 * `retab`: Replaces all leading tabs with spaces or leading spaces with tabs
    depending on the value of `tabstospaces`.
 
-* `raw`: micro will open a new tab and show the escape sequence for every event
-   it receives from the terminal. This shows you what micro actually sees from
-   the terminal and helps you see which bindings aren't possible and why. This
-   is most useful for debugging keybindings.
+* `raw`: micro will open a new tab and show the decoded events it receives from
+   the terminal. This is most useful for debugging keybindings and checking what
+   your terminal reports for a key press.
 
 * `term ['exec']`: Open a terminal emulator running the given executable. If no
    executable is given, this will open the default shell in the terminal

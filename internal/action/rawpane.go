@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/gdamore/tcell/v3"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/display"
-	"github.com/micro-editor/tcell/v2"
 )
 
 type RawPane struct {
@@ -22,7 +22,7 @@ func NewRawPaneFromWin(b *buffer.Buffer, win display.BWindow, tab *Tab) *RawPane
 
 func NewRawPane(tab *Tab) *RawPane {
 	b := buffer.NewBufferFromString("", "", buffer.BTRaw)
-	b.SetName("Raw event viewer")
+	b.SetName("Event viewer")
 
 	w := display.NewBufWindow(0, 0, 0, 0, b)
 
@@ -32,7 +32,8 @@ func NewRawPane(tab *Tab) *RawPane {
 func (h *RawPane) HandleEvent(event tcell.Event) {
 	switch e := event.(type) {
 	case *tcell.EventKey:
-		if e.Key() == tcell.KeyCtrlQ {
+		ke := keyEvent(e)
+		if ke.code == tcell.KeyRune && ke.mod&tcell.ModCtrl != 0 && (ke.r == 'q' || ke.r == 'Q') {
 			h.Quit()
 		}
 	}
@@ -44,7 +45,7 @@ func (h *RawPane) HandleEvent(event tcell.Event) {
 		h.Buf.Insert(h.Cursor.Loc, fmt.Sprintf(": %s", e.Name()))
 	}
 
-	h.Buf.Insert(h.Cursor.Loc, fmt.Sprintf(": %q\n", event.EscSeq()))
+	h.Buf.Insert(h.Cursor.Loc, "\n")
 
 	h.Relocate()
 }

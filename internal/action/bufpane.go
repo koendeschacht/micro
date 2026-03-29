@@ -7,13 +7,13 @@ import (
 
 	luar "layeh.com/gopher-luar"
 
+	"github.com/gdamore/tcell/v3"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
 	ulua "github.com/micro-editor/micro/v2/internal/lua"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/util"
-	"github.com/micro-editor/tcell/v2"
 	lua "github.com/yuin/gopher-lua"
 )
 
@@ -61,7 +61,7 @@ func LuaAction(fn string, k Event) BufAction {
 
 	var action BufAction
 	switch k.(type) {
-	case KeyEvent, KeySequenceEvent, RawEvent:
+	case KeyEvent, KeySequenceEvent:
 		action = BufKeyAction(func(h *BufPane) bool {
 			val, err := pl.Call(plFn, luar.New(ulua.L, h))
 			if err != nil {
@@ -179,7 +179,7 @@ func BufMapEvent(k Event, action string) {
 	}
 
 	switch e := k.(type) {
-	case KeyEvent, KeySequenceEvent, RawEvent:
+	case KeyEvent, KeySequenceEvent:
 		BufBindings.RegisterKeyBinding(e, BufKeyActionGeneral(func(h *BufPane) bool {
 			return bufAction(h, nil)
 		}))
@@ -269,6 +269,9 @@ type BufPane struct {
 	pendingKeySequence       bool
 	pendingKeySequenceAction PaneKeyAction
 	pendingTextObjectPreview func()
+
+	pasting     bool
+	pasteBuffer strings.Builder
 }
 
 const bufferAutoCompleteDebounce = 75 * time.Millisecond
@@ -536,27 +539,38 @@ func (h *BufPane) HandleEvent(event tcell.Event) {
 		h.handleKeySequenceTimeout(e)
 	case *TextObjectPreviewEvent:
 		h.handleTextObjectPreview(e)
-	case *tcell.EventRaw:
-		h.flushTextObjectPreview()
-		re := RawEvent{
-			esc: e.EscSeq(),
-		}
-		h.DoKeyEvent(re)
 	case *tcell.EventPaste:
 		h.flushTextObjectPreview()
-		if h.pendingKeySequence {
-			atomic.AddUint64(&h.keySequenceToken, 1)
-			h.resetKeySequence()
+		if e.Start() {
+			h.pasting = true
+			h.pasteBuffer.Reset()
+			if h.pendingKeySequence {
+				atomic.AddUint64(&h.keySequenceToken, 1)
+				h.resetKeySequence()
+			}
+		} else if e.End() {
+			h.pasting = false
+			if h.pasteBuffer.Len() > 0 {
+				h.paste(h.pasteBuffer.String())
+				h.Relocate()
+			}
+			h.pasteBuffer.Reset()
 		}
-		h.paste(e.Text())
-		h.Relocate()
 	case *tcell.EventKey:
 		h.flushTextObjectPreview()
+		if h.pasting {
+			if text, ok := pasteEventText(e); ok {
+				h.pasteBuffer.WriteString(text)
+			}
+			return
+		}
 		ke := keyEvent(e)
 
 		done := h.DoKeyEvent(ke)
 		if !done && e.Key() == tcell.KeyRune {
-			h.DoRuneInsert(e.Rune())
+			if r, ok := firstRune(e.Str()); ok {
+				h.DoRuneInsert(r)
+			}
 		}
 	case *tcell.EventMouse:
 		h.flushTextObjectPreview()

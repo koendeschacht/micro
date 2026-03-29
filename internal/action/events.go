@@ -5,23 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
-	"github.com/micro-editor/tcell/v2"
+	"github.com/gdamore/tcell/v3"
 )
 
 type Event interface {
 	Name() string
-}
-
-// RawEvent is simply an escape code
-// We allow users to directly bind escape codes
-// to get around some of a limitations of terminals
-type RawEvent struct {
-	esc string
-}
-
-func (r RawEvent) Name() string {
-	return r.esc
 }
 
 // KeyEvent is a key event containing a key code,
@@ -45,14 +35,105 @@ func metaToAlt(mod tcell.ModMask) tcell.ModMask {
 }
 
 func keyEvent(e *tcell.EventKey) KeyEvent {
+	key, mod, r := normalizeKey(e.Key(), metaToAlt(e.Modifiers()), e.Str())
 	ke := KeyEvent{
-		code: e.Key(),
-		mod:  metaToAlt(e.Modifiers()),
-	}
-	if e.Key() == tcell.KeyRune {
-		ke.r = e.Rune()
+		code: key,
+		mod:  mod,
+		r:    r,
 	}
 	return ke
+}
+
+func normalizeKey(key tcell.Key, mod tcell.ModMask, str string) (tcell.Key, tcell.ModMask, rune) {
+	if r, ok := legacyCtrlRune(key); ok {
+		return tcell.KeyRune, mod | tcell.ModCtrl, r
+	}
+
+	if key == tcell.KeyRune && str != "" {
+		r, _ := utf8.DecodeRuneInString(str)
+		return key, mod, r
+	}
+
+	return key, mod, 0
+}
+
+func firstRune(str string) (rune, bool) {
+	if str == "" {
+		return 0, false
+	}
+	r, _ := utf8.DecodeRuneInString(str)
+	if r == utf8.RuneError {
+		return 0, false
+	}
+	return r, true
+}
+
+func pasteEventText(e *tcell.EventKey) (string, bool) {
+	switch e.Key() {
+	case tcell.KeyRune:
+		return e.Str(), e.Str() != ""
+	case tcell.KeyEnter:
+		return "\n", true
+	case tcell.KeyTab:
+		return "\t", true
+	}
+
+	return "", false
+}
+
+func legacyCtrlRune(key tcell.Key) (rune, bool) {
+	switch key {
+	case tcell.KeyCtrlA:
+		return 'a', true
+	case tcell.KeyCtrlB:
+		return 'b', true
+	case tcell.KeyCtrlC:
+		return 'c', true
+	case tcell.KeyCtrlD:
+		return 'd', true
+	case tcell.KeyCtrlE:
+		return 'e', true
+	case tcell.KeyCtrlF:
+		return 'f', true
+	case tcell.KeyCtrlG:
+		return 'g', true
+	case tcell.KeyCtrlI:
+		return 'i', true
+	case tcell.KeyCtrlJ:
+		return 'j', true
+	case tcell.KeyCtrlK:
+		return 'k', true
+	case tcell.KeyCtrlL:
+		return 'l', true
+	case tcell.KeyCtrlN:
+		return 'n', true
+	case tcell.KeyCtrlO:
+		return 'o', true
+	case tcell.KeyCtrlP:
+		return 'p', true
+	case tcell.KeyCtrlQ:
+		return 'q', true
+	case tcell.KeyCtrlR:
+		return 'r', true
+	case tcell.KeyCtrlS:
+		return 's', true
+	case tcell.KeyCtrlT:
+		return 't', true
+	case tcell.KeyCtrlU:
+		return 'u', true
+	case tcell.KeyCtrlV:
+		return 'v', true
+	case tcell.KeyCtrlW:
+		return 'w', true
+	case tcell.KeyCtrlX:
+		return 'x', true
+	case tcell.KeyCtrlY:
+		return 'y', true
+	case tcell.KeyCtrlZ:
+		return 'z', true
+	}
+
+	return 0, false
 }
 
 func (k KeyEvent) Name() string {
@@ -167,10 +248,6 @@ func ConstructEvent(event tcell.Event) (Event, error) {
 	switch e := event.(type) {
 	case *tcell.EventKey:
 		return keyEvent(e), nil
-	case *tcell.EventRaw:
-		return RawEvent{
-			esc: e.EscSeq(),
-		}, nil
 	case *tcell.EventMouse:
 		return MouseEvent{
 			btn: e.Buttons(),
