@@ -41,6 +41,9 @@ as simply `Ctrl` bindings. This means that `CtrlG`, `Ctrl-G`, and `Ctrl-g` all
 mean the same thing. However, for `Alt` this is not the case: `AltG` and `Alt-G`
 mean `Alt-Shift-g`, while `Alt-g` does not require the Shift modifier.
 
+Micro also supports a configurable `<leader>` token in key sequences. By default
+it expands to `Ctrl-k`, and the key can be changed with the `leader` setting.
+
 In addition to editing your `~/.config/micro/bindings.json`, you can run
 `>bind <keycombo> <action>` For a list of bindable actions, see below.
 
@@ -515,6 +518,10 @@ MouseWheelRight
 
 Key sequences can be bound by specifying valid keys one after another in brackets, such
 as `<Ctrl-x><Ctrl-c>`.
+
+Sequences may also mix bracketed keys with literal runes, so bindings such as
+`<leader>cf` and `<leader><c><f>` are equivalent. In regular buffers, partial
+sequences time out after `keysequencetimeout` milliseconds and then reset.
 
 # Default keybinding configuration.
 

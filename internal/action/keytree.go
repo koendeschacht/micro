@@ -49,8 +49,6 @@ type TreeAction struct {
 type KeyTree struct {
 	root  *KeyTreeNode
 	modes map[string]bool
-
-	cursor KeyTreeCursor
 }
 
 // A KeyTreeCursor keeps track of the current location within the
@@ -58,6 +56,7 @@ type KeyTree struct {
 // be needed to execute the action (values of wildcard events or
 // mouse events)
 type KeyTreeCursor struct {
+	tree *KeyTree
 	node *KeyTreeNode
 
 	recordedEvents []Event
@@ -91,13 +90,17 @@ func NewKeyTree() *KeyTree {
 
 	tree.root = root
 	tree.modes = make(map[string]bool)
-	tree.cursor = KeyTreeCursor{
-		node:      root,
+
+	return tree
+}
+
+func (k *KeyTree) NewCursor() *KeyTreeCursor {
+	return &KeyTreeCursor{
+		tree:      k,
+		node:      k.root,
 		wildcards: []KeyEvent{},
 		mouseInfo: nil,
 	}
-
-	return tree
 }
 
 // A ModeConstraint specifies that an action can only be executed
@@ -176,8 +179,8 @@ func (k *KeyTree) registerBinding(e Event, a TreeAction) {
 // bindings associated with further sequences starting with this event. The
 // calling function can decide what to do about the conflict (e.g. use a
 // timeout).
-func (k *KeyTree) NextEvent(e Event, mouse *tcell.EventMouse) (PaneKeyAction, bool) {
-	n := k.cursor.node
+func (k *KeyTree) NextEvent(cursor *KeyTreeCursor, e Event, mouse *tcell.EventMouse) (PaneKeyAction, bool) {
+	n := cursor.node
 	c, ok := n.children[e]
 
 	if !ok {
@@ -186,17 +189,17 @@ func (k *KeyTree) NextEvent(e Event, mouse *tcell.EventMouse) (PaneKeyAction, bo
 
 	more := len(c.children) > 0
 
-	k.cursor.node = c
+	cursor.node = c
 
-	k.cursor.recordedEvents = append(k.cursor.recordedEvents, e)
+	cursor.recordedEvents = append(cursor.recordedEvents, e)
 
 	switch ev := e.(type) {
 	case KeyEvent:
 		if ev.any {
-			k.cursor.wildcards = append(k.cursor.wildcards, ev)
+			cursor.wildcards = append(cursor.wildcards, ev)
 		}
 	case MouseEvent:
-		k.cursor.mouseInfo = mouse
+		cursor.mouseInfo = mouse
 	}
 
 	if len(c.actions) > 0 {
@@ -213,7 +216,7 @@ func (k *KeyTree) NextEvent(e Event, mouse *tcell.EventMouse) (PaneKeyAction, bo
 
 			if active {
 				// the first active action to be found is returned
-				return k.cursor.MakeClosure(a), more
+				return cursor.MakeClosure(a), more
 			}
 		}
 	}
@@ -222,17 +225,17 @@ func (k *KeyTree) NextEvent(e Event, mouse *tcell.EventMouse) (PaneKeyAction, bo
 }
 
 // ResetEvents sets the current sequence back to the initial value.
-func (k *KeyTree) ResetEvents() {
-	k.cursor.node = k.root
-	k.cursor.wildcards = []KeyEvent{}
-	k.cursor.recordedEvents = []Event{}
-	k.cursor.mouseInfo = nil
+func (k *KeyTree) ResetEvents(cursor *KeyTreeCursor) {
+	cursor.node = k.root
+	cursor.wildcards = []KeyEvent{}
+	cursor.recordedEvents = []Event{}
+	cursor.mouseInfo = nil
 }
 
 // RecordedEventsStr returns the list of recorded events as a string
-func (k *KeyTree) RecordedEventsStr() string {
+func (k *KeyTree) RecordedEventsStr(cursor *KeyTreeCursor) string {
 	buf := &bytes.Buffer{}
-	for _, e := range k.cursor.recordedEvents {
+	for _, e := range cursor.recordedEvents {
 		buf.WriteString(e.Name())
 	}
 	return buf.String()

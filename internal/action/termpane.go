@@ -57,6 +57,7 @@ type TermPane struct {
 	mouseReleased bool
 	id            uint64
 	tab           *Tab
+	keyCursor     *KeyTreeCursor
 }
 
 func NewTermPane(x, y, w, h int, t *shell.Terminal, id uint64, tab *Tab) (*TermPane, error) {
@@ -93,6 +94,13 @@ func (t *TermPane) Tab() *Tab {
 	return t.tab
 }
 
+func (t *TermPane) bindingCursor() *KeyTreeCursor {
+	if t.keyCursor == nil || t.keyCursor.tree != TermBindings {
+		t.keyCursor = TermBindings.NewCursor()
+	}
+	return t.keyCursor
+}
+
 func (t *TermPane) Close() {}
 
 // Quit closes this termpane
@@ -126,15 +134,15 @@ func (t *TermPane) Unsplit() {
 func (t *TermPane) HandleEvent(event tcell.Event) {
 	if e, ok := event.(*tcell.EventKey); ok {
 		ke := keyEvent(e)
-		action, more := TermBindings.NextEvent(ke, nil)
+		action, more := TermBindings.NextEvent(t.bindingCursor(), ke, nil)
 
 		if !more {
 			if action != nil {
 				action(t)
-				TermBindings.ResetEvents()
+				TermBindings.ResetEvents(t.bindingCursor())
 				return
 			}
-			TermBindings.ResetEvents()
+			TermBindings.ResetEvents(t.bindingCursor())
 		}
 
 		if more {

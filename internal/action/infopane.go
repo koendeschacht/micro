@@ -59,6 +59,22 @@ func InfoKeyActionGeneral(a InfoKeyAction) PaneKeyAction {
 type InfoPane struct {
 	*BufPane
 	*info.InfoBuf
+	keyCursor    *KeyTreeCursor
+	bufKeyCursor *KeyTreeCursor
+}
+
+func (h *InfoPane) infoCursor() *KeyTreeCursor {
+	if h.keyCursor == nil || h.keyCursor.tree != InfoBindings {
+		h.keyCursor = InfoBindings.NewCursor()
+	}
+	return h.keyCursor
+}
+
+func (h *InfoPane) infoBufCursor() *KeyTreeCursor {
+	if h.bufKeyCursor == nil || h.bufKeyCursor.tree != InfoBufBindings {
+		h.bufKeyCursor = InfoBufBindings.NewCursor()
+	}
+	return h.bufKeyCursor
 }
 
 func NewInfoPane(ib *info.InfoBuf, w display.BWindow, tab *Tab) *InfoPane {
@@ -97,8 +113,8 @@ func (h *InfoPane) HandleEvent(event tcell.Event) {
 				h.YNResp = y
 				h.DonePrompt(false)
 
-				InfoBindings.ResetEvents()
-				InfoBufBindings.ResetEvents()
+				InfoBindings.ResetEvents(h.infoCursor())
+				InfoBufBindings.ResetEvents(h.infoBufCursor())
 			}
 		}
 		if e.Key() == tcell.KeyRune && !done && !hasYN {
@@ -127,14 +143,14 @@ func (h *InfoPane) HandleEvent(event tcell.Event) {
 // to process before executing an action (if this is a key sequence event).
 // Returns false if no action found.
 func (h *InfoPane) DoKeyEvent(e KeyEvent) bool {
-	action, more := InfoBindings.NextEvent(e, nil)
+	action, more := InfoBindings.NextEvent(h.infoCursor(), e, nil)
 	if action != nil && !more {
 		action(h)
-		InfoBindings.ResetEvents()
+		InfoBindings.ResetEvents(h.infoCursor())
 
 		return true
 	} else if action == nil && !more {
-		InfoBindings.ResetEvents()
+		InfoBindings.ResetEvents(h.infoCursor())
 		// return false //TODO:?
 	}
 
@@ -153,13 +169,13 @@ func (h *InfoPane) DoKeyEvent(e KeyEvent) bool {
 		// We should either iterate both InfoBindings and InfoBufBindings keytrees
 		// together, or just use the same keytree for both infopane and bufpane
 		// bindings.
-		action, more = InfoBufBindings.NextEvent(e, nil)
+		action, more = InfoBufBindings.NextEvent(h.infoBufCursor(), e, nil)
 		if action != nil && !more {
 			action(h.BufPane)
-			InfoBufBindings.ResetEvents()
+			InfoBufBindings.ResetEvents(h.infoBufCursor())
 			return true
 		} else if action == nil && !more {
-			InfoBufBindings.ResetEvents()
+			InfoBufBindings.ResetEvents(h.infoBufCursor())
 		}
 	}
 

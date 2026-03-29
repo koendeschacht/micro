@@ -165,15 +165,23 @@ func (i *InfoWindow) displayBuffer() {
 
 var keydisplay = []string{"^Q Quit, ^S Save, ^O Open, ^G Help, ^E Command Bar, ^K Cut Line", "^F Find, ^Z Undo, ^Y Redo, ^A Select All, ^D Duplicate Line, ^T New Tab"}
 
+func (i *InfoWindow) keyMenuLines() []string {
+	if len(i.KeyMenu) > 0 {
+		return i.KeyMenu
+	}
+	return keydisplay
+}
+
 func (i *InfoWindow) displayKeyMenu() {
 	// TODO: maybe make this based on the actual keybindings
+	lines := i.keyMenuLines()
 
-	for y := 0; y < len(keydisplay); y++ {
+	for y := 0; y < len(lines); y++ {
 		for x := 0; x < i.Width; x++ {
-			if x < len(keydisplay[y]) {
-				screen.SetContent(x, i.Y-len(keydisplay)+y, rune(keydisplay[y][x]), nil, i.defStyle())
+			if x < len(lines[y]) {
+				screen.SetContent(x, i.Y-len(lines)+y, rune(lines[y][x]), nil, i.defStyle())
 			} else {
-				screen.SetContent(x, i.Y-len(keydisplay)+y, ' ', nil, i.defStyle())
+				screen.SetContent(x, i.Y-len(lines)+y, ' ', nil, i.defStyle())
 			}
 		}
 	}
@@ -252,7 +260,7 @@ func (i *InfoWindow) Display() {
 		}
 		keymenuOffset := 0
 		if config.GetGlobalOption("keymenu").(bool) {
-			keymenuOffset = len(keydisplay)
+			keymenuOffset = len(i.keyMenuLines())
 		}
 
 		draw := func(r rune, s tcell.Style) {

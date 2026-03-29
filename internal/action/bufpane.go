@@ -210,7 +210,8 @@ type BufPane struct {
 	// Buf is the buffer this BufPane views
 	Buf *buffer.Buffer
 	// Bindings stores the association of key events and actions
-	bindings *KeyTree
+	bindings  *KeyTree
+	keyCursor *KeyTreeCursor
 
 	// Cursor is the currently active buffer cursor
 	Cursor *buffer.Cursor
@@ -261,10 +262,17 @@ type BufPane struct {
 	jumpIndex      int
 	jumpNavigating bool
 
-	autoCompleteToken uint64
+	autoCompleteToken      uint64
+	keySequenceToken       uint64
+	textObjectPreviewToken uint64
+
+	pendingKeySequence       bool
+	pendingKeySequenceAction PaneKeyAction
+	pendingTextObjectPreview func()
 }
 
 const bufferAutoCompleteDebounce = 75 * time.Millisecond
+const textObjectPreviewDelay = 140 * time.Millisecond
 
 func newBufPane(buf *buffer.Buffer, win display.BWindow, tab *Tab) *BufPane {
 	h := new(BufPane)
@@ -312,6 +320,51 @@ func (h *BufPane) scheduleAutomaticCompletion() {
 		h.Buf.StartAutomaticCompletion(buffer.BufferCompleteProvider)
 		screen.Redraw()
 	})
+}
+
+func (h *BufPane) cancelTextObjectPreview() {
+	if h.pendingTextObjectPreview == nil {
+		return
+	}
+	atomic.AddUint64(&h.textObjectPreviewToken, 1)
+	h.pendingTextObjectPreview = nil
+	if h.Cursor.HasSelection() {
+		h.Cursor.ResetSelection()
+		h.Relocate()
+	}
+}
+
+func (h *BufPane) startTextObjectPreview(action func()) {
+	h.pendingTextObjectPreview = action
+	token := atomic.AddUint64(&h.textObjectPreviewToken, 1)
+	time.AfterFunc(textObjectPreviewDelay, func() {
+		if screen.Events == nil {
+			return
+		}
+		screen.Events <- NewTextObjectPreviewEvent(h.ID(), token)
+	})
+}
+
+func (h *BufPane) flushTextObjectPreview() {
+	if h.pendingTextObjectPreview == nil {
+		return
+	}
+	atomic.AddUint64(&h.textObjectPreviewToken, 1)
+	action := h.pendingTextObjectPreview
+	h.pendingTextObjectPreview = nil
+	action()
+	refreshActiveKeyMenu()
+}
+
+func (h *BufPane) handleTextObjectPreview(e *TextObjectPreviewEvent) {
+	if atomic.LoadUint64(&h.textObjectPreviewToken) != e.token || h.pendingTextObjectPreview == nil {
+		return
+	}
+	if !h.IsActive() {
+		h.pendingTextObjectPreview = nil
+		return
+	}
+	h.flushTextObjectPreview()
 }
 
 // TODO: make sure splitID and tab are set before finishInitialize is called
@@ -479,15 +532,26 @@ func (h *BufPane) HandleEvent(event tcell.Event) {
 	}
 
 	switch e := event.(type) {
+	case *KeySequenceTimeoutEvent:
+		h.handleKeySequenceTimeout(e)
+	case *TextObjectPreviewEvent:
+		h.handleTextObjectPreview(e)
 	case *tcell.EventRaw:
+		h.flushTextObjectPreview()
 		re := RawEvent{
 			esc: e.EscSeq(),
 		}
 		h.DoKeyEvent(re)
 	case *tcell.EventPaste:
+		h.flushTextObjectPreview()
+		if h.pendingKeySequence {
+			atomic.AddUint64(&h.keySequenceToken, 1)
+			h.resetKeySequence()
+		}
 		h.paste(e.Text())
 		h.Relocate()
 	case *tcell.EventKey:
+		h.flushTextObjectPreview()
 		ke := keyEvent(e)
 
 		done := h.DoKeyEvent(ke)
@@ -495,6 +559,11 @@ func (h *BufPane) HandleEvent(event tcell.Event) {
 			h.DoRuneInsert(e.Rune())
 		}
 	case *tcell.EventMouse:
+		h.flushTextObjectPreview()
+		if h.pendingKeySequence {
+			atomic.AddUint64(&h.keySequenceToken, 1)
+			h.resetKeySequence()
+		}
 		if e.Buttons() != tcell.ButtonNone {
 			me := MouseEvent{
 				btn:   e.Buttons(),
@@ -551,22 +620,106 @@ func (h *BufPane) Bindings() *KeyTree {
 	return BufBindings
 }
 
+func (h *BufPane) bindingCursor() *KeyTreeCursor {
+	binds := h.Bindings()
+	if h.keyCursor == nil || h.keyCursor.tree != binds {
+		h.keyCursor = binds.NewCursor()
+	}
+	return h.keyCursor
+}
+
+func (h *BufPane) resetKeySequence() {
+	binds := h.Bindings()
+	if h.keyCursor == nil || h.keyCursor.tree != binds {
+		h.keyCursor = binds.NewCursor()
+	} else {
+		binds.ResetEvents(h.keyCursor)
+	}
+	h.pendingKeySequence = false
+	h.pendingKeySequenceAction = nil
+}
+
+func (h *BufPane) startKeySequenceTimer(token uint64) {
+	if screen.Events == nil {
+		return
+	}
+
+	timeout := time.Duration(config.GetGlobalOption("keysequencetimeout").(float64)) * time.Millisecond
+	if timeout <= 0 {
+		return
+	}
+
+	time.AfterFunc(timeout, func() {
+		screen.Events <- NewKeySequenceTimeoutEvent(h.ID(), token)
+	})
+}
+
+func (h *BufPane) handleKeySequenceTimeout(e *KeySequenceTimeoutEvent) {
+	if atomic.LoadUint64(&h.keySequenceToken) != e.token || !h.pendingKeySequence {
+		return
+	}
+
+	pendingAction := h.pendingKeySequenceAction
+	h.resetKeySequence()
+
+	if !h.IsActive() {
+		return
+	}
+
+	if pendingAction != nil {
+		pendingAction(h)
+	}
+
+	refreshActiveKeyMenu()
+}
+
 // DoKeyEvent executes a key event by finding the action it is bound
 // to and executing it (possibly multiple times for multiple cursors).
 // Returns true if the action was executed OR if there are more keys
 // remaining to process before executing an action (if this is a key
 // sequence event). Returns false if no action found.
 func (h *BufPane) DoKeyEvent(e Event) bool {
+	defer refreshActiveKeyMenu()
+
 	binds := h.Bindings()
-	action, more := binds.NextEvent(e, nil)
-	if action != nil && !more {
-		action(h)
-		binds.ResetEvents()
-		return true
-	} else if action == nil && !more {
-		binds.ResetEvents()
+	cursor := h.bindingCursor()
+	hadPending := h.pendingKeySequence
+	pendingAction := h.pendingKeySequenceAction
+	if hadPending {
+		atomic.AddUint64(&h.keySequenceToken, 1)
 	}
-	return more
+
+	action, more := binds.NextEvent(cursor, e, nil)
+	if action != nil && !more {
+		h.resetKeySequence()
+		action(h)
+		return true
+	} else if more {
+		h.pendingKeySequence = true
+		h.pendingKeySequenceAction = action
+		token := atomic.AddUint64(&h.keySequenceToken, 1)
+		h.startKeySequenceTimer(token)
+		return true
+	}
+
+	h.resetKeySequence()
+	if hadPending && pendingAction == nil {
+		action, more = binds.NextEvent(cursor, e, nil)
+		if action != nil && !more {
+			h.resetKeySequence()
+			action(h)
+			return true
+		} else if more {
+			h.pendingKeySequence = true
+			h.pendingKeySequenceAction = action
+			token := atomic.AddUint64(&h.keySequenceToken, 1)
+			h.startKeySequenceTimer(token)
+			return true
+		}
+		h.resetKeySequence()
+		return false
+	}
+	return hadPending
 }
 
 func (h *BufPane) execAction(action BufAction, name string, te *tcell.EventMouse) bool {
@@ -634,11 +787,13 @@ func (h *BufPane) HasKeyEvent(e Event) bool {
 // DoMouseEvent executes a mouse event by finding the action it is bound
 // to and executing it
 func (h *BufPane) DoMouseEvent(e MouseEvent, te *tcell.EventMouse) bool {
+	defer refreshActiveKeyMenu()
+
 	binds := h.Bindings()
-	action, _ := binds.NextEvent(e, te)
+	action, _ := binds.NextEvent(h.bindingCursor(), e, te)
 	if action != nil {
 		action(h)
-		binds.ResetEvents()
+		h.resetKeySequence()
 		return true
 	}
 	// TODO
@@ -738,14 +893,23 @@ func (h *BufPane) SetActive(b bool) {
 		return
 	}
 
+	if !b {
+		atomic.AddUint64(&h.keySequenceToken, 1)
+		h.resetKeySequence()
+		h.cancelTextObjectPreview()
+	}
+
 	h.BWindow.SetActive(b)
 	if b {
 		h.updateCursorGutterMessage()
+		refreshActiveKeyMenu()
 
 		err := config.RunPluginFn("onSetActive", luar.New(ulua.L, h))
 		if err != nil {
 			screen.TermMessage(err)
 		}
+	} else {
+		refreshActiveKeyMenu()
 	}
 }
 
@@ -800,6 +964,14 @@ var BufKeyActions = map[string]BufKeyAction{
 	"SaveAs":                    (*BufPane).SaveAs,
 	"Find":                      (*BufPane).Find,
 	"FindLiteral":               (*BufPane).FindLiteral,
+	"FindObjectClass":           (*BufPane).findClassObject,
+	"FindObjectWord":            (*BufPane).findWordObject,
+	"FindObjectFunction":        (*BufPane).findFunctionObject,
+	"FindObjectDoubleQuotes":    (*BufPane).findDoubleQuotesObject,
+	"FindObjectSingleQuotes":    (*BufPane).findSingleQuotesObject,
+	"FindObjectParens":          (*BufPane).findParensObject,
+	"FindObjectBrackets":        (*BufPane).findBracketsObject,
+	"FindObjectParagraph":       (*BufPane).findParagraphObject,
 	"FindNext":                  (*BufPane).FindNext,
 	"FindPrevious":              (*BufPane).FindPrevious,
 	"DiffNext":                  (*BufPane).DiffNext,
@@ -809,8 +981,24 @@ var BufKeyActions = map[string]BufKeyAction{
 	"Redo":                      (*BufPane).Redo,
 	"Copy":                      (*BufPane).Copy,
 	"CopyLine":                  (*BufPane).CopyLine,
+	"YankObjectClass":           (*BufPane).yankClassObject,
+	"YankObjectWord":            (*BufPane).yankWordObject,
+	"YankObjectFunction":        (*BufPane).yankFunctionObject,
+	"YankObjectDoubleQuotes":    (*BufPane).yankDoubleQuotesObject,
+	"YankObjectSingleQuotes":    (*BufPane).yankSingleQuotesObject,
+	"YankObjectParens":          (*BufPane).yankParensObject,
+	"YankObjectBrackets":        (*BufPane).yankBracketsObject,
+	"YankObjectParagraph":       (*BufPane).yankParagraphObject,
 	"Cut":                       (*BufPane).Cut,
 	"CutLine":                   (*BufPane).CutLine,
+	"DeleteObjectClass":         (*BufPane).deleteClassObject,
+	"DeleteObjectWord":          (*BufPane).deleteWordObject,
+	"DeleteObjectFunction":      (*BufPane).deleteFunctionObject,
+	"DeleteObjectDoubleQuotes":  (*BufPane).deleteDoubleQuotesObject,
+	"DeleteObjectSingleQuotes":  (*BufPane).deleteSingleQuotesObject,
+	"DeleteObjectParens":        (*BufPane).deleteParensObject,
+	"DeleteObjectBrackets":      (*BufPane).deleteBracketsObject,
+	"DeleteObjectParagraph":     (*BufPane).deleteParagraphObject,
 	"ClipboardHistory":          (*BufPane).ClipboardHistory,
 	"Duplicate":                 (*BufPane).Duplicate,
 	"DuplicateLine":             (*BufPane).DuplicateLine,
@@ -826,6 +1014,14 @@ var BufKeyActions = map[string]BufKeyAction{
 	"Paste":                     (*BufPane).Paste,
 	"PastePrimary":              (*BufPane).PastePrimary,
 	"SelectAll":                 (*BufPane).SelectAll,
+	"SelectObjectClass":         (*BufPane).selectClassObject,
+	"SelectObjectWord":          (*BufPane).selectWordObject,
+	"SelectObjectFunction":      (*BufPane).selectFunctionObject,
+	"SelectObjectDoubleQuotes":  (*BufPane).selectDoubleQuotesObject,
+	"SelectObjectSingleQuotes":  (*BufPane).selectSingleQuotesObject,
+	"SelectObjectParens":        (*BufPane).selectParensObject,
+	"SelectObjectBrackets":      (*BufPane).selectBracketsObject,
+	"SelectObjectParagraph":     (*BufPane).selectParagraphObject,
 	"OpenFile":                  (*BufPane).OpenFile,
 	"Start":                     (*BufPane).Start,
 	"End":                       (*BufPane).End,

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/micro-editor/json5"
 	"github.com/micro-editor/micro/v2/internal/config"
@@ -113,27 +114,61 @@ func BindKey(k, v string, bind func(e Event, a string)) {
 
 var r = regexp.MustCompile("<(.+?)>")
 
+func parseSequenceEventToken(token string) (Event, error) {
+	if strings.EqualFold(token, "leader") {
+		leader, ok := findSingleEvent(config.GetGlobalOption("leader").(string))
+		if !ok {
+			return nil, errors.New("leader is not a bindable event")
+		}
+		if _, ok := leader.(MouseEvent); ok {
+			return nil, errors.New("leader must be a key event")
+		}
+		return leader, nil
+	}
+
+	e, ok := findSingleEvent(token)
+	if !ok {
+		return nil, errors.New("Invalid event " + token)
+	}
+	return e, nil
+}
+
 func findEvents(k string) (b KeySequenceEvent, ok bool, err error) {
+	original := k
 	var events []Event = nil
 	for len(k) > 0 {
-		groups := r.FindStringSubmatchIndex(k)
+		if events == nil {
+			events = make([]Event, 0, 3)
+		}
 
-		if len(groups) > 3 {
-			if events == nil {
-				events = make([]Event, 0, 3)
+		if k[0] == '<' {
+			groups := r.FindStringSubmatchIndex(k)
+			if len(groups) <= 3 || groups[0] != 0 {
+				return KeySequenceEvent{}, false, nil
 			}
 
-			e, ok := findSingleEvent(k[groups[2]:groups[3]])
-			if !ok {
-				return KeySequenceEvent{}, false, errors.New("Invalid event " + k[groups[2]:groups[3]])
+			e, err := parseSequenceEventToken(k[groups[2]:groups[3]])
+			if err != nil {
+				return KeySequenceEvent{}, false, err
 			}
 
 			events = append(events, e)
-
 			k = k[groups[3]+1:]
-		} else {
+			continue
+		}
+
+		rn, size := utf8.DecodeRuneInString(k)
+		e, ok := findSingleEvent(string(rn))
+		if !ok {
 			return KeySequenceEvent{}, false, nil
 		}
+
+		events = append(events, e)
+		k = k[size:]
+	}
+
+	if len(events) == 1 && !strings.Contains(original, "<") {
+		return KeySequenceEvent{}, false, nil
 	}
 
 	return KeySequenceEvent{events}, true, nil
@@ -227,6 +262,13 @@ modSearch:
 }
 
 func findEvent(k string) (Event, error) {
+	if !strings.Contains(k, "<") {
+		event, ok := findSingleEvent(k)
+		if ok {
+			return event, nil
+		}
+	}
+
 	var event Event
 	event, ok, err := findEvents(k)
 	if err != nil {

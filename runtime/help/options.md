@@ -229,6 +229,17 @@ Here are the available options:
 
     default value: `false`
 
+* `keysequencetimeout`: timeout in milliseconds for partially typed key
+   sequences in regular buffers. When the timeout expires, the pending
+   sequence is cleared.
+
+    default value: `1000`
+
+* `leader`: sets the key used by the `<leader>` token in key sequence
+   bindings. This option is `global only`.
+
+    default value: `Ctrl-k`
+
 * `lockbindings`: prevent plugins and lua scripts from binding any keys.
    Any custom actions must be binded manually either via commands like `bind`
    or by modifying the `bindings.json` file.

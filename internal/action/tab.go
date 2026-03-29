@@ -100,6 +100,29 @@ func (t *TabList) Resize() {
 // HandleEvent checks for a resize event or a mouse event on the tab bar
 // otherwise it will forward the event to the currently active tab
 func (t *TabList) HandleEvent(event tcell.Event) {
+	if e, ok := event.(*KeySequenceTimeoutEvent); ok {
+		for _, tab := range t.List {
+			for _, p := range tab.Panes {
+				if p.ID() == e.paneID {
+					p.HandleEvent(event)
+					return
+				}
+			}
+		}
+		return
+	}
+	if e, ok := event.(*TextObjectPreviewEvent); ok {
+		for _, tab := range t.List {
+			for _, p := range tab.Panes {
+				if p.ID() == e.paneID {
+					p.HandleEvent(event)
+					return
+				}
+			}
+		}
+		return
+	}
+
 	switch e := event.(type) {
 	case *tcell.EventResize:
 		t.Resize()
@@ -274,6 +297,25 @@ func NewTabFromPane(x, y, width, height int, pane Pane) *Tab {
 // If the event is a mouse press event in a pane, that pane will become active
 // and get the event
 func (t *Tab) HandleEvent(event tcell.Event) {
+	if e, ok := event.(*KeySequenceTimeoutEvent); ok {
+		for _, p := range t.Panes {
+			if p.ID() == e.paneID {
+				p.HandleEvent(event)
+				return
+			}
+		}
+		return
+	}
+	if e, ok := event.(*TextObjectPreviewEvent); ok {
+		for _, p := range t.Panes {
+			if p.ID() == e.paneID {
+				p.HandleEvent(event)
+				return
+			}
+		}
+		return
+	}
+
 	switch e := event.(type) {
 	case *tcell.EventMouse:
 		mx, my := e.Position()
