@@ -465,7 +465,7 @@ func main() {
 
 			e, ok := <-scr.EventQ()
 			if !ok {
-				return
+				continue
 			}
 			if e != nil {
 				screen.Events <- e
