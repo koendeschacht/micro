@@ -168,8 +168,8 @@ reporting.
 
 ## Unbinding keys
 
-It is also possible to disable any of the default key bindings by use of the
-`None` action in the user's `bindings.json` file.
+It is also possible to disable any of the default key bindings by setting the
+binding to an empty string (`""`) in the user's `bindings.json` file.
 
 ## Bindable actions and bindable keys
 

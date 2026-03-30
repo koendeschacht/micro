@@ -46,6 +46,8 @@ var trivialRootActions = map[string]struct{}{
 	"CursorPageDown":            {},
 	"SelectPageUp":              {},
 	"SelectPageDown":            {},
+	"ParagraphPrevious":         {},
+	"ParagraphNext":             {},
 }
 
 func hiddenToken(key string, ctrl, alt, shift, meta bool) Token {
