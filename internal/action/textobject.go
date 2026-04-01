@@ -482,7 +482,22 @@ func (h *BufPane) pythonBlockBounds(defY, indent int) (buffer.Loc, buffer.Loc) {
 		break
 	}
 
-	for y := defY + 1; y < h.Buf.LinesNum(); y++ {
+	// Skip past multi-line signatures by tracking parenthesis depth.
+	// e.g. "def foo(\n    x: int,\n) -> str:" spans 3 lines.
+	bodyStartY := defY + 1
+	depth := strings.Count(h.Buf.Line(defY), "(") - strings.Count(h.Buf.Line(defY), ")")
+	if depth > 0 {
+		for y := defY + 1; y < h.Buf.LinesNum(); y++ {
+			line := h.Buf.Line(y)
+			depth += strings.Count(line, "(") - strings.Count(line, ")")
+			if depth <= 0 {
+				bodyStartY = y + 1
+				break
+			}
+		}
+	}
+
+	for y := bodyStartY; y < h.Buf.LinesNum(); y++ {
 		line := h.Buf.Line(y)
 		if strings.TrimSpace(line) == "" {
 			continue

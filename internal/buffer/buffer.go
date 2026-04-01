@@ -147,6 +147,9 @@ func (b *SharedBuffer) insert(pos Loc, value []byte) {
 	b.setModified()
 
 	inslines := bytes.Count(value, []byte{'\n'})
+	if inslines > 0 {
+		b.shiftSemanticHighlightsDown(pos.Y, inslines)
+	}
 	b.MarkModified(pos.Y, pos.Y+inslines)
 }
 
@@ -160,8 +163,12 @@ func (b *SharedBuffer) remove(start, end Loc) []byte {
 	b.CompletionEnd = Loc{}
 	b.GhostText = ""
 	b.GhostAt = Loc{}
+	removedLines := end.Y - start.Y
 	defer b.setModified()
-	defer b.MarkModified(start.Y, end.Y)
+	defer b.MarkModified(start.Y, start.Y)
+	if removedLines > 0 {
+		b.shiftSemanticHighlightsUp(end.Y, removedLines)
+	}
 	return b.LineArray.remove(start, end)
 }
 
@@ -222,7 +229,7 @@ func (b *SharedBuffer) MarkModified(start, end int) {
 		b.Highlighter.HighlightMatches(b, start, l)
 	}
 
-	b.clearSemanticHighlights()
+	b.invalidateSemanticHighlightsRange(start, end)
 
 	for i := start; i <= end; i++ {
 		b.LineArray.invalidateSearchMatches(i)
