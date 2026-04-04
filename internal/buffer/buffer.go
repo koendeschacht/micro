@@ -88,19 +88,28 @@ type SharedBuffer struct {
 
 	encoding encoding.Encoding
 
-	Suggestions       []string
-	Completions       []string
-	CompletionValues  []string
-	CompletionSources []string
-	CompletionEdits   [][]Delta
-	CurSuggestion     int
-	CompletionMenu    bool
-	CompletionStart   Loc
-	CompletionEnd     Loc
-	GhostText         string
-	GhostAt           Loc
-	SemanticMatch     map[int]SemanticLineMatch
-	SemanticVersion   int
+	Suggestions                 []string
+	Completions                 []string
+	CompletionValues            []string
+	CompletionSources           []string
+	CompletionEdits             [][]Delta
+	CurSuggestion               int
+	CompletionMenu              bool
+	CompletionStart             Loc
+	CompletionEnd               Loc
+	GhostText                   string
+	GhostAt                     Loc
+	SemanticMatch               map[int]SemanticLineMatch
+	SemanticVersion             int
+	DecorationMatch             map[int]DecorationLineMatch
+	LineDecorations             map[int]Decoration
+	GutterDecorations           map[int]GutterDecoration
+	decorationOwners            map[string]DecorationOwnerState
+	VirtualLinesAbove           map[int][]VirtualLine
+	VirtualLinesBelow           map[int][]VirtualLine
+	virtualLineOwners           map[string]VirtualLineOwnerState
+	VirtualLineDecorations      map[string]DecorationLineMatch
+	virtualLineDecorationOwners map[string]VirtualLineDecorationOwnerState
 
 	Messages []*Message
 

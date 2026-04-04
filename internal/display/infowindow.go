@@ -110,6 +110,7 @@ func (i *InfoWindow) Diff(s1, s2 SLoc) int             { return 0 }
 func (i *InfoWindow) SLocFromLoc(loc buffer.Loc) SLoc  { return SLoc{0, 0} }
 func (i *InfoWindow) VLocFromLoc(loc buffer.Loc) VLoc  { return VLoc{SLoc{0, 0}, loc.X} }
 func (i *InfoWindow) LocFromVLoc(vloc VLoc) buffer.Loc { return buffer.Loc{vloc.VisualX, 0} }
+func (i *InfoWindow) IsVirtualRow(s SLoc) bool         { return false }
 
 func (i *InfoWindow) Clear() {
 	for x := 0; x < i.Width; x++ {

@@ -65,10 +65,53 @@ type SoftWrap interface {
 	SLocFromLoc(loc buffer.Loc) SLoc
 	VLocFromLoc(loc buffer.Loc) VLoc
 	LocFromVLoc(vloc VLoc) buffer.Loc
+	IsVirtualRow(s SLoc) bool
+}
+
+func (w *BufWindow) getRealRowCount(line int) int {
+	eol := buffer.Loc{X: util.CharacterCount(w.Buf.LineBytes(line)), Y: line}
+	return w.getVLocFromLoc(eol).Row - w.realRowOffset(line) + 1
+}
+
+func (w *BufWindow) getBlockRowCount(line int) int {
+	rows := w.Buf.VirtualLineCount(line, true) + w.Buf.VirtualLineCount(line, false)
+	if w.Buf.Settings["softwrap"].(bool) {
+		rows += w.getRealRowCount(line)
+	} else {
+		rows++
+	}
+	return util.Max(rows, 1)
+}
+
+func (w *BufWindow) realRowOffset(line int) int {
+	return w.Buf.VirtualLineCount(line, true)
+}
+
+func (w *BufWindow) splitRow(line, row int) (section string, index int) {
+	above := w.Buf.VirtualLineCount(line, true)
+	if row < above {
+		return "above", row
+	}
+	row -= above
+
+	realRows := 1
+	if w.Buf.Settings["softwrap"].(bool) {
+		realRows = w.getRealRowCount(line)
+	}
+	if row < realRows {
+		return "real", row
+	}
+	return "below", row - realRows
+}
+
+// IsVirtualRow reports whether a vertical row corresponds to a virtual line.
+func (w *BufWindow) IsVirtualRow(s SLoc) bool {
+	section, _ := w.splitRow(s.Line, s.Row)
+	return section != "real"
 }
 
 func (w *BufWindow) getVLocFromLoc(loc buffer.Loc) VLoc {
-	vloc := VLoc{SLoc: SLoc{loc.Y, 0}, VisualX: 0}
+	vloc := VLoc{SLoc: SLoc{loc.Y, w.realRowOffset(loc.Y)}, VisualX: 0}
 
 	if loc.X <= 0 {
 		return vloc
@@ -143,6 +186,15 @@ func (w *BufWindow) getVLocFromLoc(loc buffer.Loc) VLoc {
 }
 
 func (w *BufWindow) getLocFromVLoc(svloc VLoc) buffer.Loc {
+	section, row := w.splitRow(svloc.Line, svloc.Row)
+	if section == "above" {
+		return buffer.Loc{X: 0, Y: svloc.Line}
+	}
+	if section == "below" {
+		return buffer.Loc{X: util.CharacterCount(w.Buf.LineBytes(svloc.Line)), Y: svloc.Line}
+	}
+	svloc.Row = row
+
 	loc := buffer.Loc{X: 0, Y: svloc.Line}
 
 	if w.bufWidth <= 0 {
@@ -223,11 +275,6 @@ func (w *BufWindow) getLocFromVLoc(svloc VLoc) buffer.Loc {
 	return loc
 }
 
-func (w *BufWindow) getRowCount(line int) int {
-	eol := buffer.Loc{X: util.CharacterCount(w.Buf.LineBytes(line)), Y: line}
-	return w.getVLocFromLoc(eol).Row + 1
-}
-
 func (w *BufWindow) scrollUp(s SLoc, n int) SLoc {
 	for n > 0 {
 		if n <= s.Row {
@@ -236,7 +283,7 @@ func (w *BufWindow) scrollUp(s SLoc, n int) SLoc {
 		} else if s.Line > 0 {
 			s.Line--
 			n -= s.Row + 1
-			s.Row = w.getRowCount(s.Line) - 1
+			s.Row = w.getBlockRowCount(s.Line) - 1
 		} else {
 			s.Row = 0
 			break
@@ -247,7 +294,7 @@ func (w *BufWindow) scrollUp(s SLoc, n int) SLoc {
 
 func (w *BufWindow) scrollDown(s SLoc, n int) SLoc {
 	for n > 0 {
-		rc := w.getRowCount(s.Line)
+		rc := w.getBlockRowCount(s.Line)
 		if n < rc-s.Row {
 			s.Row += n
 			n = 0
@@ -274,7 +321,7 @@ func (w *BufWindow) diff(s1, s2 SLoc) int {
 	n := 0
 	for s1.LessThan(s2) {
 		if s1.Line < s2.Line {
-			n += w.getRowCount(s1.Line) - s1.Row
+			n += w.getBlockRowCount(s1.Line) - s1.Row
 			s1.Line++
 			s1.Row = 0
 		} else {
@@ -291,8 +338,7 @@ func (w *BufWindow) diff(s1, s2 SLoc) int {
 // within the buffer boundaries.
 func (w *BufWindow) Scroll(s SLoc, n int) SLoc {
 	if !w.Buf.Settings["softwrap"].(bool) {
-		s.Line = util.Clamp(s.Line+n, 0, w.Buf.LinesNum()-1)
-		return s
+		return w.scroll(s, n)
 	}
 	return w.scroll(s, n)
 }
@@ -300,7 +346,10 @@ func (w *BufWindow) Scroll(s SLoc, n int) SLoc {
 // Diff returns the difference (the vertical distance) between two SLocs.
 func (w *BufWindow) Diff(s1, s2 SLoc) int {
 	if !w.Buf.Settings["softwrap"].(bool) {
-		return s2.Line - s1.Line
+		if s1.GreaterThan(s2) {
+			return -w.diff(s2, s1)
+		}
+		return w.diff(s1, s2)
 	}
 	if s1.GreaterThan(s2) {
 		return -w.diff(s2, s1)
@@ -312,7 +361,7 @@ func (w *BufWindow) Diff(s1, s2 SLoc) int {
 // of the visual line containing this position.
 func (w *BufWindow) SLocFromLoc(loc buffer.Loc) SLoc {
 	if !w.Buf.Settings["softwrap"].(bool) {
-		return SLoc{loc.Y, 0}
+		return SLoc{loc.Y, w.realRowOffset(loc.Y)}
 	}
 	return w.getVLocFromLoc(loc).SLoc
 }
@@ -324,7 +373,7 @@ func (w *BufWindow) VLocFromLoc(loc buffer.Loc) VLoc {
 		tabsize := util.IntOpt(w.Buf.Settings["tabsize"])
 
 		visualx := util.StringWidth(w.Buf.LineBytes(loc.Y), loc.X, tabsize)
-		return VLoc{SLoc{loc.Y, 0}, visualx}
+		return VLoc{SLoc{loc.Y, w.realRowOffset(loc.Y)}, visualx}
 	}
 	return w.getVLocFromLoc(loc)
 }
@@ -333,6 +382,13 @@ func (w *BufWindow) VLocFromLoc(loc buffer.Loc) VLoc {
 // the position in the buffer corresponding to this visual location.
 func (w *BufWindow) LocFromVLoc(vloc VLoc) buffer.Loc {
 	if !w.Buf.Settings["softwrap"].(bool) {
+		section, _ := w.splitRow(vloc.Line, vloc.Row)
+		if section == "above" {
+			return buffer.Loc{X: 0, Y: vloc.Line}
+		}
+		if section == "below" {
+			return buffer.Loc{X: util.CharacterCount(w.Buf.LineBytes(vloc.Line)), Y: vloc.Line}
+		}
 		tabsize := util.IntOpt(w.Buf.Settings["tabsize"])
 
 		x := util.GetCharPosInLine(w.Buf.LineBytes(vloc.Line), vloc.VisualX, tabsize)

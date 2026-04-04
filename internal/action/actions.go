@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell/v3"
 	shellquote "github.com/kballard/go-shellquote"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/clipboard"
@@ -18,7 +19,6 @@ import (
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/shell"
 	"github.com/micro-editor/micro/v2/internal/util"
-	"github.com/gdamore/tcell/v3"
 )
 
 // ScrollUp is not an action
@@ -214,42 +214,69 @@ func (h *BufPane) CursorToViewBottom() bool {
 	return true
 }
 
-// MoveCursorUp is not an action
-func (h *BufPane) MoveCursorUp(n int) {
-	if !h.Buf.Settings["softwrap"].(bool) {
-		h.Cursor.UpN(n)
-	} else {
-		vloc := h.VLocFromLoc(h.Cursor.Loc)
-		sloc := h.Scroll(vloc.SLoc, -n)
+func (h *BufPane) isVerticalCursorStop(current, next buffer.Loc) bool {
+	if h.Buf.Settings["softwrap"].(bool) {
+		return next != current
+	}
+	return next.Y != current.Y
+}
+
+func (h *BufPane) stepCursorVertical(vloc *display.VLoc, current buffer.Loc, dir int) (buffer.Loc, bool) {
+	for {
+		sloc := h.Scroll(vloc.SLoc, dir)
 		if sloc == vloc.SLoc {
-			// we are at the beginning of buffer
-			h.Cursor.Loc = h.Buf.Start()
-			h.Cursor.StoreVisualX()
-		} else {
-			vloc.SLoc = sloc
-			vloc.VisualX = h.Cursor.LastWrappedVisualX
-			h.Cursor.Loc = h.LocFromVLoc(vloc)
+			return current, false
+		}
+
+		vloc.SLoc = sloc
+		if h.IsVirtualRow(sloc) {
+			continue
+		}
+
+		vloc.VisualX = h.Cursor.LastWrappedVisualX
+		next := h.LocFromVLoc(*vloc)
+		if h.isVerticalCursorStop(current, next) {
+			return next, true
 		}
 	}
 }
 
+func (h *BufPane) moveCursorVertical(n, dir int) {
+	if !h.Buf.Settings["softwrap"].(bool) && !h.Buf.HasVirtualLines() {
+		if dir < 0 {
+			h.Cursor.UpN(n)
+		} else {
+			h.Cursor.DownN(n)
+		}
+		return
+	}
+
+	vloc := h.VLocFromLoc(h.Cursor.Loc)
+	loc := h.Cursor.Loc
+	for i := 0; i < n; i++ {
+		next, ok := h.stepCursorVertical(&vloc, loc, dir)
+		if !ok {
+			if dir < 0 {
+				h.Cursor.Loc = h.Buf.Start()
+			} else {
+				h.Cursor.Loc = h.Buf.End()
+			}
+			h.Cursor.StoreVisualX()
+			return
+		}
+		loc = next
+		h.Cursor.Loc = loc
+	}
+}
+
+// MoveCursorUp is not an action
+func (h *BufPane) MoveCursorUp(n int) {
+	h.moveCursorVertical(n, -1)
+}
+
 // MoveCursorDown is not an action
 func (h *BufPane) MoveCursorDown(n int) {
-	if !h.Buf.Settings["softwrap"].(bool) {
-		h.Cursor.DownN(n)
-	} else {
-		vloc := h.VLocFromLoc(h.Cursor.Loc)
-		sloc := h.Scroll(vloc.SLoc, n)
-		if sloc == vloc.SLoc {
-			// we are at the end of buffer
-			h.Cursor.Loc = h.Buf.End()
-			h.Cursor.StoreVisualX()
-		} else {
-			vloc.SLoc = sloc
-			vloc.VisualX = h.Cursor.LastWrappedVisualX
-			h.Cursor.Loc = h.LocFromVLoc(vloc)
-		}
-	}
+	h.moveCursorVertical(n, 1)
 }
 
 // CursorUp moves the cursor up
