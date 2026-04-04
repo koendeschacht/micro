@@ -745,10 +745,6 @@ func (h *BufPane) execAction(action BufAction, name string, te *tcell.EventMouse
 		return h.Buf.AcceptCompletionMenu()
 	}
 
-	if name != "Autocomplete" && name != "CycleAutocompleteBack" && name != "Escape" {
-		h.Buf.ClearAutocomplete()
-	}
-
 	if !h.PluginCB("pre"+name, te) {
 		return false
 	}
@@ -761,6 +757,10 @@ func (h *BufPane) execAction(action BufAction, name string, te *tcell.EventMouse
 		success = a(h, te)
 	}
 	success = success && h.PluginCB("on"+name, te)
+
+	if success && name != "Autocomplete" && name != "CycleAutocompleteBack" && name != "Escape" {
+		h.Buf.ClearAutocomplete()
+	}
 
 	if _, ok := MultiActions[name]; ok {
 		if recordingMacro {
