@@ -186,8 +186,9 @@ function comment(bp, args)
 
     local commentType = bp.Buf.Settings["comment.type"]
     local commentRegex = "^%s*" .. commentType:gsub("%%","%%%%"):gsub("%$","%$"):gsub("%)","%)"):gsub("%(","%("):gsub("%?","%?"):gsub("%*", "%*"):gsub("%-", "%-"):gsub("%.", "%."):gsub("%+", "%+"):gsub("%]", "%]"):gsub("%[", "%["):gsub("%%%%s", "(.*)")
+    local hasSelection = bp.Cursor:HasSelection()
 
-    if bp.Cursor:HasSelection() then
+    if hasSelection then
         if bp.Cursor.CurSelection[1]:GreaterThan(-bp.Cursor.CurSelection[2]) then
             local endLine = bp.Cursor.CurSelection[1].Y
             if bp.Cursor.CurSelection[1].X == 0 then
@@ -203,6 +204,7 @@ function comment(bp, args)
         end
     else
         toggleCommentLine(bp, bp.Cursor.Y, commentRegex)
+        bp:CursorDown()
     end
 end
 
