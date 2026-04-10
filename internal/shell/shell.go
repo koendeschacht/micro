@@ -2,33 +2,46 @@ package shell
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
+	"time"
 
 	shellquote "github.com/kballard/go-shellquote"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/util"
 )
 
-// ExecCommand executes a command using exec
-// It returns any output/errors
-func ExecCommand(name string, arg ...string) (string, error) {
-	var err error
-	cmd := exec.Command(name, arg...)
+const commandTimeout = 10 * time.Second
+
+func execCommandWithTimeout(timeout time.Duration, name string, arg ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, arg...)
 	outputBytes := &bytes.Buffer{}
 	cmd.Stdout = outputBytes
 	cmd.Stderr = outputBytes
-	err = cmd.Start()
+	err := cmd.Start()
 	if err != nil {
 		return "", err
 	}
-	err = cmd.Wait() // wait for command to finish
+	err = cmd.Wait()
 	outstring := outputBytes.String()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return outstring, fmt.Errorf("command timed out after %s", timeout)
+	}
 	return outstring, err
+}
+
+// ExecCommand executes a command using exec
+// It returns any output/errors
+func ExecCommand(name string, arg ...string) (string, error) {
+	return execCommandWithTimeout(commandTimeout, name, arg...)
 }
 
 // RunCommand executes a shell command and returns the output/error

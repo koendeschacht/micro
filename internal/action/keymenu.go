@@ -18,11 +18,15 @@ var leaderGroupLabels = map[string]string{
 	"d": "delete",
 	"c": "code",
 	"f": "find",
+	"g": "git",
 	"h": "help",
 	"m": "macro",
 	"n": "navigation",
+	"r": "run",
 	"s": "settings",
+	"t": "tests",
 	"v": "select",
+	"w": "panes",
 	"y": "yank",
 }
 
