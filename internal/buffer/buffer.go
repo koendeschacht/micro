@@ -501,6 +501,11 @@ func NewBuffer(r io.Reader, size int64, path string, btype BufType, cmd Command)
 			screen.TermMessage(err)
 		}
 	}
+	if cmd.StartCursor.X == -1 && cmd.StartCursor.Y == -1 && rememberPositionEnabled() {
+		if loc, ok := getRememberedPosition(absPath); ok {
+			b.StartCursor = loc
+		}
+	}
 
 	b.AddCursor(NewCursor(b, b.StartCursor))
 	b.GetActiveCursor().Relocate()
@@ -568,6 +573,7 @@ func (b *Buffer) Close() {
 // Fini should be called when a buffer is closed and performs
 // some cleanup
 func (b *Buffer) Fini() {
+	RecordRememberedPosition(b)
 	if !b.Modified() {
 		b.Serialize()
 	}

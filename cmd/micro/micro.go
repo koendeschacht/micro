@@ -277,10 +277,14 @@ func checkBackup(name string) error {
 }
 
 func exit(rc int) {
+	buffer.RecordOpenBufferPositions()
 	for _, b := range buffer.OpenBuffers {
 		if !b.Modified() {
 			b.Fini()
 		}
+	}
+	if err := buffer.SaveRememberedPositions(); err != nil {
+		screen.TermMessage(err)
 	}
 
 	if screen.Screen != nil {
@@ -353,6 +357,11 @@ func main() {
 			config.GlobalSettings[k] = nativeValue
 			config.VolatileSettings[k] = true
 		}
+	}
+
+	err = buffer.LoadRememberedPositions()
+	if err != nil {
+		screen.TermMessage(err)
 	}
 
 	DoPluginFlags()
@@ -516,6 +525,7 @@ func DoEvent() {
 		for _, b := range buffer.OpenBuffers {
 			b.AutoSave()
 		}
+		action.CloseHiddenCleanBuffers()
 	case <-shell.CloseTerms:
 		action.Tabs.CloseTerms()
 	case event = <-screen.Events:

@@ -8,6 +8,7 @@ const maxJumpHistory = 100
 
 // JumpLocation stores a cursor position with its associated file path.
 type JumpLocation struct {
+	Buf  *buffer.Buffer
 	Path string
 	Loc  buffer.Loc
 }
@@ -33,7 +34,7 @@ func (h *BufPane) PushJump() {
 		}
 	}
 
-	h.jumpHistory = append(h.jumpHistory, JumpLocation{Path: path, Loc: loc})
+	h.jumpHistory = append(h.jumpHistory, JumpLocation{Buf: h.Buf, Path: path, Loc: loc})
 	if len(h.jumpHistory) > maxJumpHistory {
 		h.jumpHistory = h.jumpHistory[1:]
 	} else {
@@ -73,7 +74,11 @@ func (h *BufPane) JumpForward() bool {
 
 // gotoJumpLoc opens the file if necessary and moves the cursor to the location.
 func (h *BufPane) gotoJumpLoc(loc JumpLocation) {
-	if loc.Path != h.Buf.AbsPath {
+	if loc.Buf != nil && bufferIsOpen(loc.Buf) {
+		if loc.Buf != h.Buf {
+			h.OpenBuffer(loc.Buf)
+		}
+	} else if loc.Path != h.Buf.AbsPath {
 		buf, err := buffer.NewBufferFromFile(loc.Path, buffer.BTDefault)
 		if err != nil {
 			InfoBar.Error(err)
