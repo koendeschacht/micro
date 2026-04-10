@@ -432,7 +432,7 @@ func (h *BufPane) resetMouse() {
 
 // OpenBuffer opens the given buffer in this pane.
 func (h *BufPane) OpenBuffer(b *buffer.Buffer) {
-	h.Buf.Close()
+	old := h.Buf
 	h.Buf = b
 	h.BWindow.SetBuffer(b)
 	h.Cursor = b.GetActiveCursor()
@@ -442,6 +442,10 @@ func (h *BufPane) OpenBuffer(b *buffer.Buffer) {
 	// pressed when the editor is opened
 	h.resetMouse()
 	h.lastClickTime = time.Time{}
+
+	if old != nil && old != b && !old.Modified() {
+		old.Close()
+	}
 }
 
 // GotoLoc moves the cursor to a new location and adjusts the view accordingly.
@@ -745,10 +749,6 @@ func (h *BufPane) execAction(action BufAction, name string, te *tcell.EventMouse
 		return h.Buf.AcceptCompletionMenu()
 	}
 
-	if name != "Autocomplete" && name != "CycleAutocompleteBack" && name != "Escape" {
-		h.Buf.ClearAutocomplete()
-	}
-
 	if !h.PluginCB("pre"+name, te) {
 		return false
 	}
@@ -761,6 +761,10 @@ func (h *BufPane) execAction(action BufAction, name string, te *tcell.EventMouse
 		success = a(h, te)
 	}
 	success = success && h.PluginCB("on"+name, te)
+
+	if success && name != "Autocomplete" && name != "CycleAutocompleteBack" && name != "Escape" {
+		h.Buf.ClearAutocomplete()
+	}
 
 	if _, ok := MultiActions[name]; ok {
 		if recordingMacro {

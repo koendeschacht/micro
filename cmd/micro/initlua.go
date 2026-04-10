@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"time"
 
+	"github.com/gdamore/tcell/v3"
 	lua "github.com/yuin/gopher-lua"
 	luar "layeh.com/gopher-luar"
 
@@ -60,6 +62,9 @@ func luaImportMicro() *lua.LTable {
 	ulua.L.SetField(pkg, "Tabs", luar.New(ulua.L, func() *action.TabList {
 		return action.Tabs
 	}))
+	ulua.L.SetField(pkg, "NanoTime", luar.New(ulua.L, func() int64 {
+		return time.Now().UnixNano()
+	}))
 	ulua.L.SetField(pkg, "After", luar.New(ulua.L, func(t time.Duration, f func()) {
 		time.AfterFunc(t, func() {
 			timerChan <- f
@@ -71,6 +76,12 @@ func luaImportMicro() *lua.LTable {
 
 func luaImportMicroConfig() *lua.LTable {
 	pkg := ulua.L.NewTable()
+	colorString := func(c tcell.Color) string {
+		if c == tcell.ColorDefault {
+			return "default"
+		}
+		return fmt.Sprintf("#%06x", c.TrueColor().Hex())
+	}
 
 	ulua.L.SetField(pkg, "MakeCommand", luar.New(ulua.L, action.MakeCommand))
 	ulua.L.SetField(pkg, "FileComplete", luar.New(ulua.L, buffer.FileComplete))
@@ -96,6 +107,12 @@ func luaImportMicroConfig() *lua.LTable {
 	ulua.L.SetField(pkg, "SetGlobalOption", luar.New(ulua.L, action.SetGlobalOptionPlug))
 	ulua.L.SetField(pkg, "SetGlobalOptionNative", luar.New(ulua.L, action.SetGlobalOptionNativePlug))
 	ulua.L.SetField(pkg, "ConfigDir", luar.New(ulua.L, config.ConfigDir))
+	ulua.L.SetField(pkg, "GetColorForeground", luar.New(ulua.L, func(name string) string {
+		return colorString(config.GetColor(name).GetForeground())
+	}))
+	ulua.L.SetField(pkg, "GetColorBackground", luar.New(ulua.L, func(name string) string {
+		return colorString(config.GetColor(name).GetBackground())
+	}))
 
 	return pkg
 }
@@ -139,6 +156,11 @@ func luaImportMicroBuffer() *lua.LTable {
 	ulua.L.SetField(pkg, "BTInfo", luar.New(ulua.L, buffer.BTInfo.Kind))
 	ulua.L.SetField(pkg, "NewBuffer", luar.New(ulua.L, func(text, path string) *buffer.Buffer {
 		return buffer.NewBufferFromString(text, path, buffer.BTDefault)
+	}))
+	ulua.L.SetField(pkg, "NewScratchBuffer", luar.New(ulua.L, func(text, name string) *buffer.Buffer {
+		b := buffer.NewBufferFromString(text, "", buffer.BTScratch)
+		b.SetName(name)
+		return b
 	}))
 	ulua.L.SetField(pkg, "NewBufferFromFile", luar.New(ulua.L, func(path string) (*buffer.Buffer, error) {
 		return buffer.NewBufferFromFile(path, buffer.BTDefault)

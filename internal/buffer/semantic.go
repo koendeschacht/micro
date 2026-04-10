@@ -23,6 +23,55 @@ func (b *SharedBuffer) clearSemanticHighlights() {
 	b.SemanticVersion = 0
 }
 
+func (b *SharedBuffer) invalidateSemanticHighlightsRange(start, end int) {
+	if b.SemanticMatch == nil {
+		return
+	}
+	if end < start {
+		start, end = end, start
+	}
+	for line := range b.SemanticMatch {
+		if line >= start && line <= end {
+			delete(b.SemanticMatch, line)
+		}
+	}
+	if len(b.SemanticMatch) == 0 {
+		b.SemanticMatch = nil
+	}
+}
+
+func (b *SharedBuffer) shiftSemanticHighlightsDown(afterLine, delta int) {
+	if b.SemanticMatch == nil || delta <= 0 {
+		return
+	}
+
+	shifted := make(map[int]SemanticLineMatch, len(b.SemanticMatch))
+	for line, match := range b.SemanticMatch {
+		if line > afterLine {
+			shifted[line+delta] = match
+		} else {
+			shifted[line] = match
+		}
+	}
+	b.SemanticMatch = shifted
+}
+
+func (b *SharedBuffer) shiftSemanticHighlightsUp(afterLine, delta int) {
+	if b.SemanticMatch == nil || delta <= 0 {
+		return
+	}
+
+	shifted := make(map[int]SemanticLineMatch, len(b.SemanticMatch))
+	for line, match := range b.SemanticMatch {
+		if line > afterLine {
+			shifted[line-delta] = match
+		} else {
+			shifted[line] = match
+		}
+	}
+	b.SemanticMatch = shifted
+}
+
 // ClearSemanticHighlights removes all external semantic highlight state.
 func (b *Buffer) ClearSemanticHighlights() {
 	b.clearSemanticHighlights()

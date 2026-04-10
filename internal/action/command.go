@@ -49,6 +49,8 @@ func InitCommands() {
 		"nextdiag":    {(*BufPane).NextDiagCmd, nil},
 		"prevdiag":    {(*BufPane).PrevDiagCmd, nil},
 		"save":        {(*BufPane).SaveCmd, nil},
+		"saveall":     {(*BufPane).SaveAllCmd, nil},
+		"save_all":    {(*BufPane).SaveAllCmd, nil},
 		"replace":     {(*BufPane).ReplaceCmd, nil},
 		"replaceall":  {(*BufPane).ReplaceAllCmd, nil},
 		"vsplit":      {(*BufPane).VSplitCmd, buffer.FileComplete},
@@ -305,19 +307,12 @@ func (h *BufPane) PwdCmd(args []string) {
 // OpenCmd opens a new buffer with a given filename
 func (h *BufPane) OpenCmd(args []string) {
 	if len(args) > 0 {
-		open := func() {
-			b, err := buffer.NewBufferFromFile(args[0], buffer.BTDefault)
-			if err != nil {
-				InfoBar.Error(err)
-				return
-			}
-			h.OpenBuffer(b)
+		b, err := buffer.NewBufferFromFile(args[0], buffer.BTDefault)
+		if err != nil {
+			InfoBar.Error(err)
+			return
 		}
-		if h.Buf.Modified() && !h.Buf.Shared() {
-			h.closePrompt("Save", open)
-		} else {
-			open()
-		}
+		h.OpenBuffer(b)
 	} else {
 		InfoBar.Error("No filename")
 	}
@@ -1007,6 +1002,11 @@ func (h *BufPane) SaveCmd(args []string) {
 	} else {
 		h.saveBufToFile(args[0], "SaveAs", nil)
 	}
+}
+
+// SaveAllCmd saves all modified buffers.
+func (h *BufPane) SaveAllCmd(args []string) {
+	h.SaveAll()
 }
 
 // ReplaceCmd runs search and replace

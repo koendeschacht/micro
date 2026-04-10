@@ -88,19 +88,28 @@ type SharedBuffer struct {
 
 	encoding encoding.Encoding
 
-	Suggestions       []string
-	Completions       []string
-	CompletionValues  []string
-	CompletionSources []string
-	CompletionEdits   [][]Delta
-	CurSuggestion     int
-	CompletionMenu    bool
-	CompletionStart   Loc
-	CompletionEnd     Loc
-	GhostText         string
-	GhostAt           Loc
-	SemanticMatch     map[int]SemanticLineMatch
-	SemanticVersion   int
+	Suggestions                 []string
+	Completions                 []string
+	CompletionValues            []string
+	CompletionSources           []string
+	CompletionEdits             [][]Delta
+	CurSuggestion               int
+	CompletionMenu              bool
+	CompletionStart             Loc
+	CompletionEnd               Loc
+	GhostText                   string
+	GhostAt                     Loc
+	SemanticMatch               map[int]SemanticLineMatch
+	SemanticVersion             int
+	DecorationMatch             map[int]DecorationLineMatch
+	LineDecorations             map[int]Decoration
+	GutterDecorations           map[int]GutterDecoration
+	decorationOwners            map[string]DecorationOwnerState
+	VirtualLinesAbove           map[int][]VirtualLine
+	VirtualLinesBelow           map[int][]VirtualLine
+	virtualLineOwners           map[string]VirtualLineOwnerState
+	VirtualLineDecorations      map[string]DecorationLineMatch
+	virtualLineDecorationOwners map[string]VirtualLineDecorationOwnerState
 
 	Messages []*Message
 
@@ -147,6 +156,9 @@ func (b *SharedBuffer) insert(pos Loc, value []byte) {
 	b.setModified()
 
 	inslines := bytes.Count(value, []byte{'\n'})
+	if inslines > 0 {
+		b.shiftSemanticHighlightsDown(pos.Y, inslines)
+	}
 	b.MarkModified(pos.Y, pos.Y+inslines)
 }
 
@@ -160,8 +172,12 @@ func (b *SharedBuffer) remove(start, end Loc) []byte {
 	b.CompletionEnd = Loc{}
 	b.GhostText = ""
 	b.GhostAt = Loc{}
+	removedLines := end.Y - start.Y
 	defer b.setModified()
-	defer b.MarkModified(start.Y, end.Y)
+	defer b.MarkModified(start.Y, start.Y)
+	if removedLines > 0 {
+		b.shiftSemanticHighlightsUp(end.Y, removedLines)
+	}
 	return b.LineArray.remove(start, end)
 }
 
@@ -222,7 +238,7 @@ func (b *SharedBuffer) MarkModified(start, end int) {
 		b.Highlighter.HighlightMatches(b, start, l)
 	}
 
-	b.clearSemanticHighlights()
+	b.invalidateSemanticHighlightsRange(start, end)
 
 	for i := start; i <= end; i++ {
 		b.LineArray.invalidateSearchMatches(i)
@@ -485,6 +501,11 @@ func NewBuffer(r io.Reader, size int64, path string, btype BufType, cmd Command)
 			screen.TermMessage(err)
 		}
 	}
+	if cmd.StartCursor.X == -1 && cmd.StartCursor.Y == -1 && rememberPositionEnabled() {
+		if loc, ok := getRememberedPosition(absPath); ok {
+			b.StartCursor = loc
+		}
+	}
 
 	b.AddCursor(NewCursor(b, b.StartCursor))
 	b.GetActiveCursor().Relocate()
@@ -552,6 +573,7 @@ func (b *Buffer) Close() {
 // Fini should be called when a buffer is closed and performs
 // some cleanup
 func (b *Buffer) Fini() {
+	RecordRememberedPosition(b)
 	if !b.Modified() {
 		b.Serialize()
 	}

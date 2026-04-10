@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gdamore/tcell/v3"
 	shellquote "github.com/kballard/go-shellquote"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/clipboard"
@@ -18,7 +19,6 @@ import (
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/shell"
 	"github.com/micro-editor/micro/v2/internal/util"
-	"github.com/gdamore/tcell/v3"
 )
 
 // ScrollUp is not an action
@@ -214,42 +214,69 @@ func (h *BufPane) CursorToViewBottom() bool {
 	return true
 }
 
-// MoveCursorUp is not an action
-func (h *BufPane) MoveCursorUp(n int) {
-	if !h.Buf.Settings["softwrap"].(bool) {
-		h.Cursor.UpN(n)
-	} else {
-		vloc := h.VLocFromLoc(h.Cursor.Loc)
-		sloc := h.Scroll(vloc.SLoc, -n)
+func (h *BufPane) isVerticalCursorStop(current, next buffer.Loc) bool {
+	if h.Buf.Settings["softwrap"].(bool) {
+		return next != current
+	}
+	return next.Y != current.Y
+}
+
+func (h *BufPane) stepCursorVertical(vloc *display.VLoc, current buffer.Loc, dir int) (buffer.Loc, bool) {
+	for {
+		sloc := h.Scroll(vloc.SLoc, dir)
 		if sloc == vloc.SLoc {
-			// we are at the beginning of buffer
-			h.Cursor.Loc = h.Buf.Start()
-			h.Cursor.StoreVisualX()
-		} else {
-			vloc.SLoc = sloc
-			vloc.VisualX = h.Cursor.LastWrappedVisualX
-			h.Cursor.Loc = h.LocFromVLoc(vloc)
+			return current, false
+		}
+
+		vloc.SLoc = sloc
+		if h.IsVirtualRow(sloc) {
+			continue
+		}
+
+		vloc.VisualX = h.Cursor.LastWrappedVisualX
+		next := h.LocFromVLoc(*vloc)
+		if h.isVerticalCursorStop(current, next) {
+			return next, true
 		}
 	}
 }
 
+func (h *BufPane) moveCursorVertical(n, dir int) {
+	if !h.Buf.Settings["softwrap"].(bool) && !h.Buf.HasVirtualLines() {
+		if dir < 0 {
+			h.Cursor.UpN(n)
+		} else {
+			h.Cursor.DownN(n)
+		}
+		return
+	}
+
+	vloc := h.VLocFromLoc(h.Cursor.Loc)
+	loc := h.Cursor.Loc
+	for i := 0; i < n; i++ {
+		next, ok := h.stepCursorVertical(&vloc, loc, dir)
+		if !ok {
+			if dir < 0 {
+				h.Cursor.Loc = h.Buf.Start()
+			} else {
+				h.Cursor.Loc = h.Buf.End()
+			}
+			h.Cursor.StoreVisualX()
+			return
+		}
+		loc = next
+		h.Cursor.Loc = loc
+	}
+}
+
+// MoveCursorUp is not an action
+func (h *BufPane) MoveCursorUp(n int) {
+	h.moveCursorVertical(n, -1)
+}
+
 // MoveCursorDown is not an action
 func (h *BufPane) MoveCursorDown(n int) {
-	if !h.Buf.Settings["softwrap"].(bool) {
-		h.Cursor.DownN(n)
-	} else {
-		vloc := h.VLocFromLoc(h.Cursor.Loc)
-		sloc := h.Scroll(vloc.SLoc, n)
-		if sloc == vloc.SLoc {
-			// we are at the end of buffer
-			h.Cursor.Loc = h.Buf.End()
-			h.Cursor.StoreVisualX()
-		} else {
-			vloc.SLoc = sloc
-			vloc.VisualX = h.Cursor.LastWrappedVisualX
-			h.Cursor.Loc = h.LocFromVLoc(vloc)
-		}
-	}
+	h.moveCursorVertical(n, 1)
 }
 
 // CursorUp moves the cursor up
@@ -962,36 +989,59 @@ func (h *BufPane) InsertTab() bool {
 	return true
 }
 
-// SaveAll saves all open buffers
+// SaveAll saves all modified buffers and closes the hidden ones that no longer
+// need to stay resident.
 func (h *BufPane) SaveAll() bool {
-	for _, b := range buffer.OpenBuffers {
-		b.Save()
+	buffers := modifiedBuffers(h.Buf)
+	if len(buffers) == 0 {
+		closeHiddenCleanBuffers()
+		return true
 	}
-	return true
+
+	return h.saveBuffersCB(buffers, "Save", nil)
+}
+
+func (h *BufPane) saveBuffersCB(buffers []*buffer.Buffer, action string, callback func()) bool {
+	if len(buffers) == 0 {
+		closeHiddenCleanBuffers()
+		if callback != nil {
+			callback()
+		}
+		return true
+	}
+
+	next := func() {
+		h.saveBuffersCB(buffers[1:], action, callback)
+	}
+
+	return h.saveBufferCB(buffers[0], action, next)
+}
+
+func (h *BufPane) saveBufferCB(buf *buffer.Buffer, action string, callback func()) bool {
+	if buf.Path == "" {
+		return h.saveBufferAsCB(buf, action, callback)
+	}
+
+	return h.saveBufferToFile(buf, buf.Path, action, callback)
 }
 
 // SaveCB performs a save and does a callback at the very end (after all prompts have been resolved)
 func (h *BufPane) SaveCB(action string, callback func()) bool {
-	// If this is an empty buffer, ask for a filename
-	if h.Buf.Path == "" {
-		h.SaveAsCB(action, callback)
-	} else {
-		noPrompt := h.saveBufToFile(h.Buf.Path, action, callback)
-		if noPrompt {
-			return true
-		}
-	}
-	return false
+	return h.saveBufferCB(h.Buf, action, callback)
 }
 
-// Save the buffer to disk
+// Save all modified buffers.
 func (h *BufPane) Save() bool {
-	return h.SaveCB("Save", nil)
+	return h.SaveAll()
 }
 
 // SaveAsCB performs a save as and does a callback at the very end (after all prompts have been resolved)
 // The callback is only called if the save was successful
 func (h *BufPane) SaveAsCB(action string, callback func()) bool {
+	return h.saveBufferAsCB(h.Buf, action, callback)
+}
+
+func (h *BufPane) saveBufferAsCB(buf *buffer.Buffer, action string, callback func()) bool {
 	InfoBar.Prompt("Filename: ", "", "Save", nil, func(resp string, canceled bool) {
 		if !canceled {
 			// the filename might or might not be quoted, so unquote first then join the strings.
@@ -1008,7 +1058,7 @@ func (h *BufPane) SaveAsCB(action string, callback func()) bool {
 			fileinfo, err := os.Stat(filename)
 			if err != nil {
 				if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
-					noPrompt := h.saveBufToFile(filename, action, callback)
+					noPrompt := h.saveBufferToFile(buf, filename, action, callback)
 					if noPrompt {
 						h.completeAction(action)
 						return
@@ -1022,7 +1072,7 @@ func (h *BufPane) SaveAsCB(action string, callback func()) bool {
 					fmt.Sprintf("The file %s already exists in the directory, would you like to overwrite? Y/n", fileinfo.Name()),
 					func(yes, canceled bool) {
 						if yes && !canceled {
-							noPrompt := h.saveBufToFile(filename, action, callback)
+							noPrompt := h.saveBufferToFile(buf, filename, action, callback)
 							if noPrompt {
 								h.completeAction(action)
 							}
@@ -1044,7 +1094,11 @@ func (h *BufPane) SaveAs() bool {
 // to `filename` if the save is successful
 // The callback is only called if the save was successful
 func (h *BufPane) saveBufToFile(filename string, action string, callback func()) bool {
-	err := h.Buf.SaveAs(filename)
+	return h.saveBufferToFile(h.Buf, filename, action, callback)
+}
+
+func (h *BufPane) saveBufferToFile(buf *buffer.Buffer, filename string, action string, callback func()) bool {
+	err := buf.SaveAs(filename)
 	if err != nil {
 		if errors.Is(err, fs.ErrPermission) {
 			if runtime.GOOS == "windows" {
@@ -1053,17 +1107,18 @@ func (h *BufPane) saveBufToFile(filename string, action string, callback func())
 			}
 
 			saveWithSudo := func() {
-				err = h.Buf.SaveAsWithSudo(filename)
+				err = buf.SaveAsWithSudo(filename)
 				if err != nil {
 					InfoBar.Error(err)
 				} else {
 					InfoBar.Message("Saved " + filename)
+					closeHiddenCleanBuffers()
 					if callback != nil {
 						callback()
 					}
 				}
 			}
-			if h.Buf.Settings["autosu"].(bool) {
+			if buf.Settings["autosu"].(bool) {
 				saveWithSudo()
 			} else {
 				InfoBar.YNPrompt(
@@ -1082,6 +1137,7 @@ func (h *BufPane) saveBufToFile(filename string, action string, callback func())
 		}
 	} else {
 		InfoBar.Message("Saved " + filename)
+		closeHiddenCleanBuffers()
 		if callback != nil {
 			callback()
 		}
@@ -1973,11 +2029,41 @@ func (h *BufPane) ForceQuit() bool {
 	} else if len(Tabs.List) > 1 {
 		Tabs.RemoveTab(h.splitID)
 	} else {
-		screen.Screen.Fini()
-		InfoBar.Close()
-		runtime.Goexit()
+		quitMicro()
 	}
 	return true
+}
+
+func quitMicro() {
+	buffer.CloseOpenBuffers()
+	screen.Screen.Fini()
+	InfoBar.Close()
+	runtime.Goexit()
+}
+
+func (h *BufPane) promptToSaveBuffers(buffers []*buffer.Buffer, callback func()) bool {
+	if len(buffers) == 0 {
+		if callback != nil {
+			callback()
+		}
+		return true
+	}
+
+	buf := buffers[0]
+	InfoBar.YNPrompt("Save changes to "+buf.GetName()+" before quitting? (y,n,esc)", func(yes, canceled bool) {
+		if canceled {
+			return
+		}
+		if !yes {
+			h.promptToSaveBuffers(buffers[1:], callback)
+			return
+		}
+
+		h.saveBufferCB(buf, "Quit", func() {
+			h.promptToSaveBuffers(buffers[1:], callback)
+		})
+	})
+	return false
 }
 
 // closePrompt displays a prompt to save the buffer before closing it to proceed
@@ -1994,6 +2080,16 @@ func (h *BufPane) closePrompt(action string, callback func()) {
 
 // Quit this will close the current tab or view that is open
 func (h *BufPane) Quit() bool {
+	if len(h.tab.Panes) == 1 && len(Tabs.List) == 1 {
+		buffers := modifiedBuffers(h.Buf)
+		if len(buffers) > 0 {
+			h.promptToSaveBuffers(buffers, quitMicro)
+		} else {
+			quitMicro()
+		}
+		return true
+	}
+
 	if h.Buf.Modified() && !h.Buf.Shared() {
 		if config.GlobalSettings["autosave"].(float64) > 0 && h.Buf.Path != "" {
 			// autosave on means we automatically save when quitting
@@ -2013,29 +2109,11 @@ func (h *BufPane) Quit() bool {
 
 // QuitAll quits the whole editor; all splits and tabs
 func (h *BufPane) QuitAll() bool {
-	anyModified := false
-	for _, b := range buffer.OpenBuffers {
-		if b.Modified() {
-			anyModified = true
-			break
-		}
-	}
-
-	quit := func() {
-		buffer.CloseOpenBuffers()
-		screen.Screen.Fini()
-		InfoBar.Close()
-		runtime.Goexit()
-	}
-
-	if anyModified {
-		InfoBar.YNPrompt("Quit micro? (all open buffers will be closed without saving)", func(yes, canceled bool) {
-			if !canceled && yes {
-				quit()
-			}
-		})
+	buffers := modifiedBuffers(h.Buf)
+	if len(buffers) > 0 {
+		h.promptToSaveBuffers(buffers, quitMicro)
 	} else {
-		quit()
+		quitMicro()
 	}
 
 	return true

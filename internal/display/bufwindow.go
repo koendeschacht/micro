@@ -151,6 +151,9 @@ func (w *BufWindow) updateDisplayInfo() {
 	if w.hasMessage {
 		w.gutterOffset += 2
 	}
+	if b.HasGutterDecorations() {
+		w.gutterOffset++
+	}
 	if b.Settings["diffgutter"].(bool) {
 		w.gutterOffset++
 	}
@@ -172,19 +175,21 @@ func (w *BufWindow) updateDisplayInfo() {
 	}
 }
 
-func (w *BufWindow) getStartInfo(n, lineN int) ([]byte, int, int, *tcell.Style, string) {
+func (w *BufWindow) getStartInfo(n, lineN int) ([]byte, int, int, *tcell.Style, string, buffer.Decoration) {
 	tabsize := util.IntOpt(w.Buf.Settings["tabsize"])
 	width := 0
 	bloc := buffer.Loc{0, lineN}
 	b := w.Buf.LineBytes(lineN)
 	curStyle := config.DefStyle
 	semanticGroup := ""
+	decoration := buffer.Decoration{}
 	var s *tcell.Style
 	for len(b) > 0 {
 		r, _, size := util.DecodeCharacter(b)
 
 		curStyle, found := w.getStyle(curStyle, bloc)
 		semanticGroup, _ = w.getSemanticGroup(semanticGroup, bloc)
+		decoration, _ = w.getDecoration(decoration, bloc)
 		if found {
 			s = &curStyle
 		}
@@ -198,13 +203,13 @@ func (w *BufWindow) getStartInfo(n, lineN int) ([]byte, int, int, *tcell.Style, 
 			w = runewidth.RuneWidth(r)
 		}
 		if width+w > n {
-			return b, n - width, bloc.X, s, semanticGroup
+			return b, n - width, bloc.X, s, semanticGroup, decoration
 		}
 		width += w
 		b = b[size:]
 		bloc.X++
 	}
-	return b, n - width, bloc.X, s, semanticGroup
+	return b, n - width, bloc.X, s, semanticGroup, decoration
 }
 
 // Clear resets all cells in this window to the default style
@@ -329,6 +334,24 @@ func (w *BufWindow) drawDiffGutter(backgroundStyle tcell.Style, softwrapped bool
 	vloc.X++
 }
 
+func (w *BufWindow) drawDecorationGutter(backgroundStyle tcell.Style, softwrapped bool, vloc *buffer.Loc, bloc *buffer.Loc) {
+	if vloc.X >= w.gutterOffset {
+		return
+	}
+
+	symbol := ' '
+	style := backgroundStyle
+	if !softwrapped {
+		if decoration, ok := w.Buf.GutterDecoration(bloc.Y); ok {
+			symbol = decoration.Symbol
+			style = applyStyleOverlay(style, config.GetColor(decoration.Group))
+		}
+	}
+
+	screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, symbol, nil, style)
+	vloc.X++
+}
+
 func (w *BufWindow) drawLineNum(lineNumStyle tcell.Style, softwrapped bool, vloc *buffer.Loc, bloc *buffer.Loc) {
 	cursorLine := w.Buf.GetActiveCursor().Loc.Y
 	var lineInt int
@@ -357,6 +380,85 @@ func (w *BufWindow) drawLineNum(lineNumStyle tcell.Style, softwrapped bool, vloc
 	// Write the extra space
 	if vloc.X < w.gutterOffset {
 		screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, ' ', nil, lineNumStyle)
+		vloc.X++
+	}
+}
+
+func (w *BufWindow) drawBlankGutters(style tcell.Style, vloc *buffer.Loc) {
+	for vloc.X < w.gutterOffset {
+		screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, ' ', nil, style)
+		vloc.X++
+	}
+}
+
+func (w *BufWindow) drawVirtualLineRow(line buffer.VirtualLine, screenY int) {
+	style := config.DefStyle
+	if line.Group != "" {
+		style = applyStyleOverlay(style, config.GetColor(line.Group))
+	}
+	curDecoration := buffer.Decoration{}
+	lineDecorations := w.Buf.VirtualLineDecoration(line.ID)
+
+	vloc := buffer.Loc{X: 0, Y: screenY}
+	if vloc.Y >= 0 {
+		w.drawBlankGutters(style, &vloc)
+	} else {
+		vloc.X = w.gutterOffset
+	}
+
+	if vloc.Y < 0 {
+		return
+	}
+
+	text := []byte(line.Text)
+	visualX := 0
+	charX := 0
+	tabsize := util.IntOpt(w.Buf.Settings["tabsize"])
+	maxWidth := w.gutterOffset + w.bufWidth
+	for len(text) > 0 && vloc.X < maxWidth {
+		r, combc, size := util.DecodeCharacter(text)
+		text = text[size:]
+		if lineDecorations != nil {
+			if next, ok := lineDecorations[charX]; ok {
+				curDecoration = next
+			}
+		}
+
+		width := runewidth.RuneWidth(r)
+		drawRune := r
+		if r == '\t' {
+			width = tabsize - (visualX % tabsize)
+			drawRune = ' '
+		}
+		if width <= 0 {
+			width = 1
+		}
+
+		if visualX+width <= w.StartCol {
+			visualX += width
+			continue
+		}
+
+		for i := 0; i < width && vloc.X < maxWidth; i++ {
+			if visualX+i < w.StartCol {
+				continue
+			}
+			cellRune := drawRune
+			cellCombc := combc
+			if i > 0 || drawRune == '\t' {
+				cellRune = ' '
+				cellCombc = nil
+			}
+			runeStyle := decorationStyle(style, curDecoration)
+			screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, cellRune, cellCombc, runeStyle)
+			vloc.X++
+		}
+		visualX += width
+		charX++
+	}
+
+	for vloc.X < maxWidth {
+		screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, ' ', nil, style)
 		vloc.X++
 	}
 }
@@ -422,6 +524,32 @@ func semanticStyle(base tcell.Style, token string) tcell.Style {
 	return base
 }
 
+func applyStyleOverlay(base tcell.Style, overlay tcell.Style) tcell.Style {
+	if fg := overlay.GetForeground(); fg != config.DefStyle.GetForeground() {
+		base = base.Foreground(fg)
+	}
+	if bg := overlay.GetBackground(); bg != config.DefStyle.GetBackground() {
+		base = base.Background(bg)
+	}
+	if overlay.HasBold() {
+		base = base.Bold(true)
+	}
+	if overlay.HasItalic() {
+		base = base.Italic(true)
+	}
+	if overlay.HasUnderline() {
+		base = base.Underline(true)
+	}
+	return base
+}
+
+func decorationStyle(base tcell.Style, decoration buffer.Decoration) tcell.Style {
+	if decoration.Group == "" {
+		return base
+	}
+	return applyStyleOverlay(base, config.GetColor(decoration.Group))
+}
+
 func (w *BufWindow) getSemanticGroup(group string, bloc buffer.Loc) (string, bool) {
 	line := w.Buf.SemanticLine(bloc.Y)
 	if line == nil {
@@ -431,6 +559,17 @@ func (w *BufWindow) getSemanticGroup(group string, bloc buffer.Loc) (string, boo
 		return next, true
 	}
 	return group, false
+}
+
+func (w *BufWindow) getDecoration(decoration buffer.Decoration, bloc buffer.Loc) (buffer.Decoration, bool) {
+	line := w.Buf.DecorationLine(bloc.Y)
+	if line == nil {
+		return decoration, false
+	}
+	if next, ok := line[bloc.X]; ok {
+		return next, true
+	}
+	return decoration, false
 }
 
 func (w *BufWindow) showCursor(x, y int, main bool) {
@@ -796,7 +935,7 @@ func (w *BufWindow) displayBuffer() {
 	// this represents the current draw position
 	// within the current window
 	vloc := buffer.Loc{X: 0, Y: 0}
-	if softwrap {
+	if softwrap || b.HasVirtualLines() {
 		// the start line may be partially out of the current window
 		vloc.Y = -w.StartLine.Row
 	}
@@ -808,6 +947,7 @@ func (w *BufWindow) displayBuffer() {
 
 	curStyle := config.DefStyle
 	curSemanticGroup := ""
+	curDecoration := buffer.Decoration{}
 
 	// Parse showchars which is in the format of key1=val1,key2=val2,...
 	spacechars := " "
@@ -832,7 +972,18 @@ func (w *BufWindow) displayBuffer() {
 		}
 	}
 
-	for ; vloc.Y < w.bufHeight; vloc.Y++ {
+	for vloc.Y < w.bufHeight {
+		for _, line := range b.VirtualLines(bloc.Y, true) {
+			w.drawVirtualLineRow(line, vloc.Y)
+			vloc.Y++
+			if vloc.Y >= w.bufHeight {
+				break
+			}
+		}
+		if vloc.Y >= w.bufHeight {
+			break
+		}
+
 		vloc.X = 0
 
 		currentLine := false
@@ -853,6 +1004,10 @@ func (w *BufWindow) displayBuffer() {
 				w.drawGutter(&vloc, &bloc)
 			}
 
+			if b.HasGutterDecorations() {
+				w.drawDecorationGutter(s, false, &vloc, &bloc)
+			}
+
 			if b.Settings["diffgutter"].(bool) {
 				w.drawDiffGutter(s, false, &vloc, &bloc)
 			}
@@ -870,14 +1025,16 @@ func (w *BufWindow) displayBuffer() {
 		leadingwsEnd := len(util.GetLeadingWhitespace(bline))
 		trailingwsStart := blineLen - util.CharacterCount(util.GetTrailingWhitespace(bline))
 
-		line, nColsBeforeStart, bslice, startStyle, startSemanticGroup := w.getStartInfo(w.StartCol, bloc.Y)
+		line, nColsBeforeStart, bslice, startStyle, startSemanticGroup, startDecoration := w.getStartInfo(w.StartCol, bloc.Y)
 		if startStyle != nil {
 			curStyle = *startStyle
 		} else {
 			curStyle = config.DefStyle
 		}
 		curSemanticGroup = startSemanticGroup
+		curDecoration = startDecoration
 		bloc.X = bslice
+		lineDecoration, hasLineDecoration := b.LineDecoration(bloc.Y)
 
 		// returns the rune to be drawn, style of it and if the bg should be preserved
 		getRuneStyle := func(r rune, style tcell.Style, showoffset int, linex int, isplaceholder bool) (rune, tcell.Style, bool) {
@@ -1053,6 +1210,9 @@ func (w *BufWindow) displayBuffer() {
 				if w.hasMessage {
 					w.drawGutter(&vloc, &bloc)
 				}
+				if b.HasGutterDecorations() {
+					w.drawDecorationGutter(lineNumStyle, true, &vloc, &bloc)
+				}
 				if b.Settings["diffgutter"].(bool) {
 					w.drawDiffGutter(lineNumStyle, true, &vloc, &bloc)
 				}
@@ -1089,10 +1249,15 @@ func (w *BufWindow) displayBuffer() {
 			loc := buffer.Loc{X: bloc.X + len(word), Y: bloc.Y}
 			curStyle, _ = w.getStyle(curStyle, loc)
 			curSemanticGroup, _ = w.getSemanticGroup(curSemanticGroup, loc)
+			curDecoration, _ = w.getDecoration(curDecoration, loc)
 			runeStyle := curStyle
 			if curSemanticGroup != "" {
 				runeStyle = semanticStyle(curStyle, curSemanticGroup)
 			}
+			if hasLineDecoration {
+				runeStyle = decorationStyle(runeStyle, lineDecoration)
+			}
+			runeStyle = decorationStyle(runeStyle, curDecoration)
 
 			width := 0
 
@@ -1120,8 +1285,12 @@ func (w *BufWindow) displayBuffer() {
 
 			// If a word (or just a wide rune) does not fit in the window
 			if vloc.X+wordwidth > maxWidth && vloc.X > w.gutterOffset {
+				fillStyle := config.DefStyle
+				if hasLineDecoration {
+					fillStyle = decorationStyle(fillStyle, lineDecoration)
+				}
 				for vloc.X < maxWidth {
-					draw(' ', nil, config.DefStyle, false, false, true)
+					draw(' ', nil, fillStyle, false, false, true)
 				}
 
 				// We either stop or we wrap to draw the word in the next line
@@ -1170,6 +1339,9 @@ func (w *BufWindow) displayBuffer() {
 		}
 
 		style := config.DefStyle
+		if hasLineDecoration {
+			style = decorationStyle(style, lineDecoration)
+		}
 		for _, c := range cursors {
 			if b.Settings["cursorline"].(bool) && w.active &&
 				!c.HasSelection() && c.Y == bloc.Y {
@@ -1194,7 +1366,11 @@ func (w *BufWindow) displayBuffer() {
 
 		if vloc.X != maxWidth {
 			// Display newline within a selection
-			drawrune, drawstyle, preservebg := getRuneStyle(' ', config.DefStyle, 0, totalwidth, true)
+			placeholderStyle := config.DefStyle
+			if hasLineDecoration {
+				placeholderStyle = decorationStyle(placeholderStyle, lineDecoration)
+			}
+			drawrune, drawstyle, preservebg := getRuneStyle(' ', placeholderStyle, 0, totalwidth, true)
 			draw(drawrune, nil, drawstyle, true, true, preservebg)
 		}
 
@@ -1228,6 +1404,15 @@ func (w *BufWindow) displayBuffer() {
 					w.showCursor(w.X+ghostX, w.Y+ghostY, c.Num == 0)
 				}
 			}
+		}
+
+		vloc.Y++
+		for _, line := range b.VirtualLines(bloc.Y, false) {
+			if vloc.Y >= w.bufHeight {
+				break
+			}
+			w.drawVirtualLineRow(line, vloc.Y)
+			vloc.Y++
 		}
 
 		bloc.X = w.StartCol
