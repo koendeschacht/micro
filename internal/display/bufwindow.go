@@ -288,16 +288,28 @@ func (w *BufWindow) LocFromVisual(svloc buffer.Loc) buffer.Loc {
 
 func (w *BufWindow) drawGutter(vloc *buffer.Loc, bloc *buffer.Loc) {
 	char := ' '
+	pad := ' '
 	s := config.DefStyle
 	for _, m := range w.Buf.Messages {
 		if m.Start.Y == bloc.Y || m.End.Y == bloc.Y {
 			s = m.Style()
-			char = '>'
+			switch m.Kind {
+			case buffer.MTError:
+				char = ''
+			case buffer.MTWarning:
+				char = ''
+			default:
+				char = ''
+			}
 			break
 		}
 	}
-	for i := 0; i < 2 && vloc.X < w.gutterOffset; i++ {
+	if vloc.X < w.gutterOffset {
 		screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, char, nil, s)
+		vloc.X++
+	}
+	if vloc.X < w.gutterOffset {
+		screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, pad, nil, s)
 		vloc.X++
 	}
 }
