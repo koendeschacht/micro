@@ -210,8 +210,8 @@ Here are the available options:
 
     default value: ` ` (space)
 
-* `infobar`: enables the line at the bottom of the editor where messages are
-   printed. This option is `global only`.
+* `infobar`: enables the popup near the bottom-left of the editor where
+   messages and key hints are shown. This option is `global only`.
 
     default value: `true`
 
@@ -447,17 +447,20 @@ Here are the available options:
 * `statusformatl`: format string definition for the left-justified part of the
    statusline. Special directives should be placed inside `$()`. Special
    directives include: `filename`, `modified`, `line`, `col`, `lines`,
-   `percentage`, `opt`, `overwrite`, `bind`.
+   `percentage`, `opt`, `overwrite`, `bind`, `symbol`.
    The `opt` and `bind` directives take either an option or an action afterward
-   and fill in the value of the option or the key bound to the action.
+   and fill in the value of the option or the key bound to the action. The
+   `symbol` directive takes a colorscheme symbol name and inserts its value.
 
-    default value: `$(filename) $(modified)$(overwrite)($(line),$(col)) $(status.paste)|
-                    ft:$(opt:filetype) | $(opt:fileformat) | $(opt:encoding)`
+    default value: `$(filename) $(modified)$(overwrite)
+                    ($(line),$(col)) |
+                    $(symbol:statusline.encoding) $(opt:encoding)`
 
 * `statusformatr`: format string definition for the right-justified part of the
    statusline.
 
-    default value: `$(bind:ToggleKeyMenu): bindings, $(bind:ToggleHelp): help`
+    default value: `$(bind:ToggleKeyMenu) $(symbol:statusline.bindings) bindings,
+                    $(bind:ToggleHelp) $(symbol:statusline.help) help`
 
 * `statusline`: display the status line at the bottom of the screen.
 

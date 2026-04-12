@@ -50,6 +50,7 @@ var commandLabels = map[string]string{
 	"jprevdiag":       "prev diag",
 	"kittyterm":       "terminal",
 	"lspcompletion":   "completion",
+	"lsprestart":      "restart lsp",
 	"pytestfile":      "test file",
 	"pytestnode":      "test node",
 	"pytestretry":     "test retry",

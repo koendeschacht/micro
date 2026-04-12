@@ -199,6 +199,12 @@ func Init() error {
 		return err
 	}
 
+	if keyboard, ok := Screen.(vt.AdvancedKeyboard); ok {
+		if err := keyboard.SetKeyboardMode(vt.KeyboardKitty | vt.KeyboardEvents); err != nil {
+			log.Println("Warning: could not enable advanced keyboard mode:", err)
+		}
+	}
+
 	if config.GetGlobalOption("paste").(bool) {
 		Screen.EnablePaste()
 	} else {

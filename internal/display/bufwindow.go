@@ -121,11 +121,7 @@ func (w *BufWindow) updateDisplayInfo() {
 
 	w.drawDivider = false
 	if !b.Settings["statusline"].(bool) {
-		_, h := screen.Screen.Size()
-		infoY := h
-		if config.GetGlobalOption("infobar").(bool) {
-			infoY--
-		}
+		_, infoY := screen.Screen.Size()
 		if w.Y+w.Height != infoY {
 			w.drawDivider = true
 		}

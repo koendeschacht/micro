@@ -15,6 +15,24 @@ var DefStyle tcell.Style = tcell.StyleDefault
 // Colorscheme is the current colorscheme
 var Colorscheme map[string]tcell.Style
 
+// ColorschemeSymbols stores symbol values provided by the current colorscheme.
+var ColorschemeSymbols map[string]string
+
+var defaultColorschemeSymbols = map[string]string{
+	"message":               "",
+	"success-message":       "",
+	"error-message":         "",
+	"prompt-message":        "",
+	"statusline.filename":   "",
+	"statusline.line":       "",
+	"statusline.col":        "",
+	"statusline.filetype":   "",
+	"statusline.fileformat": "↵",
+	"statusline.encoding":   "",
+	"statusline.bindings":   "",
+	"statusline.help":       "",
+}
+
 // GetColor takes in a syntax group and returns the colorscheme's style for that group
 func GetColor(color string) tcell.Style {
 	st := DefStyle
@@ -69,6 +87,44 @@ func GetColorschemeStyle(color string) (tcell.Style, bool) {
 	return st, found
 }
 
+// GetColorschemeSymbol looks up a colorscheme symbol with dotted-prefix fallback.
+func GetColorschemeSymbol(name string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	sym := ""
+	found := false
+	groups := strings.Split(name, ".")
+	if len(groups) > 1 {
+		curGroup := ""
+		for i, g := range groups {
+			if i != 0 {
+				curGroup += "."
+			}
+			curGroup += g
+			if symbol, ok := ColorschemeSymbols[curGroup]; ok {
+				sym = symbol
+				found = true
+			}
+		}
+	} else if symbol, ok := ColorschemeSymbols[name]; ok {
+		sym = symbol
+		found = true
+	}
+	return sym, found
+}
+
+// GetColorschemeSymbolOrDefault returns a colorscheme symbol or its built-in fallback.
+func GetColorschemeSymbolOrDefault(name string) string {
+	if sym, ok := GetColorschemeSymbol(name); ok && sym != "" {
+		return sym
+	}
+	if sym, ok := defaultColorschemeSymbols[name]; ok {
+		return sym
+	}
+	return ""
+}
+
 // ColorschemeExists checks if a given colorscheme exists
 func ColorschemeExists(colorschemeName string) bool {
 	return FindRuntimeFile(RTColorscheme, colorschemeName) != nil
@@ -77,18 +133,21 @@ func ColorschemeExists(colorschemeName string) bool {
 // InitColorscheme picks and initializes the colorscheme when micro starts
 func InitColorscheme() error {
 	Colorscheme = make(map[string]tcell.Style)
+	ColorschemeSymbols = make(map[string]string)
 	DefStyle = tcell.StyleDefault
 
-	c, err := LoadDefaultColorscheme()
+	c, symbols, err := LoadDefaultColorscheme()
 	if err == nil {
 		Colorscheme = c
+		ColorschemeSymbols = symbols
 	} else {
 		// The colorscheme setting seems broken (maybe because we have not validated
 		// it earlier, see comment in verifySetting()). So reset it to the default
 		// colorscheme and try again.
 		GlobalSettings["colorscheme"] = DefaultGlobalOnlySettings["colorscheme"]
-		if c, err2 := LoadDefaultColorscheme(); err2 == nil {
+		if c, symbols, err2 := LoadDefaultColorscheme(); err2 == nil {
 			Colorscheme = c
+			ColorschemeSymbols = symbols
 		}
 	}
 
@@ -96,40 +155,43 @@ func InitColorscheme() error {
 }
 
 // LoadDefaultColorscheme loads the default colorscheme from $(ConfigDir)/colorschemes
-func LoadDefaultColorscheme() (map[string]tcell.Style, error) {
+func LoadDefaultColorscheme() (map[string]tcell.Style, map[string]string, error) {
 	var parsedColorschemes []string
 	return LoadColorscheme(GlobalSettings["colorscheme"].(string), &parsedColorschemes)
 }
 
 // LoadColorscheme loads the given colorscheme from a directory
-func LoadColorscheme(colorschemeName string, parsedColorschemes *[]string) (map[string]tcell.Style, error) {
+func LoadColorscheme(colorschemeName string, parsedColorschemes *[]string) (map[string]tcell.Style, map[string]string, error) {
 	c := make(map[string]tcell.Style)
+	symbols := make(map[string]string)
 	file := FindRuntimeFile(RTColorscheme, colorschemeName)
 	if file == nil {
-		return c, errors.New(colorschemeName + " is not a valid colorscheme")
+		return c, symbols, errors.New(colorschemeName + " is not a valid colorscheme")
 	}
 	if data, err := file.Data(); err != nil {
-		return c, errors.New("Error loading colorscheme: " + err.Error())
+		return c, symbols, errors.New("Error loading colorscheme: " + err.Error())
 	} else {
 		var err error
-		c, err = ParseColorscheme(file.Name(), string(data), parsedColorschemes)
+		c, symbols, err = ParseColorscheme(file.Name(), string(data), parsedColorschemes)
 		if err != nil {
-			return c, err
+			return c, symbols, err
 		}
 	}
-	return c, nil
+	return c, symbols, nil
 }
 
 // ParseColorscheme parses the text definition for a colorscheme and returns the corresponding object
 // Colorschemes are made up of color-link statements linking a color group to a list of colors
 // For example, color-link keyword (blue,red) makes all keywords have a blue foreground and
 // red background
-func ParseColorscheme(name string, text string, parsedColorschemes *[]string) (map[string]tcell.Style, error) {
+func ParseColorscheme(name string, text string, parsedColorschemes *[]string) (map[string]tcell.Style, map[string]string, error) {
 	var err error
 	colorParser := regexp.MustCompile(`color-link\s+(\S*)\s+"(.*)"`)
+	symbolParser := regexp.MustCompile(`symbol-link\s+(\S*)\s+"(.*)"`)
 	includeParser := regexp.MustCompile(`include\s+"(.*)"`)
 	lines := strings.Split(text, "\n")
 	c := make(map[string]tcell.Style)
+	symbols := make(map[string]string)
 
 	if parsedColorschemes != nil {
 		*parsedColorschemes = append(*parsedColorschemes, name)
@@ -155,12 +217,15 @@ lineLoop:
 						continue lineLoop
 					}
 				}
-				includeScheme, err := LoadColorscheme(include, parsedColorschemes)
+				includeScheme, includeSymbols, err := LoadColorscheme(include, parsedColorschemes)
 				if err != nil {
-					return c, err
+					return c, symbols, err
 				}
 				for k, v := range includeScheme {
 					c[k] = v
+				}
+				for k, v := range includeSymbols {
+					symbols[k] = v
 				}
 			}
 			continue
@@ -177,12 +242,18 @@ lineLoop:
 			if link == "default" {
 				DefStyle = style
 			}
+			continue
+		}
+
+		matches = symbolParser.FindSubmatch([]byte(line))
+		if len(matches) == 3 {
+			symbols[string(matches[1])] = string(matches[2])
 		} else {
-			err = errors.New("Color-link statement is not valid: " + line)
+			err = errors.New("Colorscheme statement is not valid: " + line)
 		}
 	}
 
-	return c, err
+	return c, symbols, err
 }
 
 // StringToStyle returns a style from a string

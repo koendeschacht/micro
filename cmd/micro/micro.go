@@ -144,6 +144,15 @@ func DoPluginFlags() {
 	}
 }
 
+func logInputEvent(event tcell.Event) {
+	switch e := event.(type) {
+	case *tcell.EventKey:
+		log.Printf("INPUT key type=%T key=%v name=%q str=%q mod=%v", e, e.Key(), e.Name(), e.Str(), e.Modifiers())
+	default:
+		log.Printf("INPUT event type=%T", event)
+	}
+}
+
 // LoadInput determines which files should be loaded into buffers
 // based on the input stored in flag.Args()
 func LoadInput(args []string) []*buffer.Buffer {
@@ -477,6 +486,7 @@ func main() {
 				continue
 			}
 			if e != nil {
+				logInputEvent(e)
 				screen.Events <- e
 			}
 		}

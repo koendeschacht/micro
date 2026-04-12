@@ -2,9 +2,13 @@ package info
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/micro-editor/micro/v2/internal/buffer"
+	"github.com/micro-editor/micro/v2/internal/screen"
 )
+
+const transientMessageDuration = 4 * time.Second
 
 // The InfoBuf displays messages and other info at the bottom of the screen.
 // It is represented as a buffer and a message with a style.
@@ -17,6 +21,8 @@ type InfoBuf struct {
 	HasYN      bool
 
 	PromptType string
+	MsgKind    MsgKind
+	ExpiresAt  time.Time
 
 	Msg    string
 	YNResp bool
@@ -44,6 +50,14 @@ type KeyMenuEntry struct {
 	Label string
 }
 
+type MsgKind int
+
+const (
+	MsgInfo MsgKind = iota
+	MsgSuccess
+	MsgError
+)
+
 var RootKeyMenuEntries func() []KeyMenuEntry
 
 func (i *InfoBuf) SetKeyMenu(entries []KeyMenuEntry) {
@@ -52,6 +66,30 @@ func (i *InfoBuf) SetKeyMenu(entries []KeyMenuEntry) {
 
 func (i *InfoBuf) ClearKeyMenu() {
 	i.KeyMenu = i.KeyMenu[:0]
+}
+
+func (i *InfoBuf) showTransientMessage(kind MsgKind, msg string) {
+	i.Msg = msg
+	i.MsgKind = kind
+	i.HasMessage, i.HasError = kind != MsgError, kind == MsgError
+	i.HasGutter = false
+	i.ExpiresAt = time.Now().Add(transientMessageDuration)
+	time.AfterFunc(transientMessageDuration, screen.Redraw)
+}
+
+func (i *InfoBuf) MessageExpired() bool {
+	return !i.ExpiresAt.IsZero() && time.Now().After(i.ExpiresAt)
+}
+
+func (i *InfoBuf) ExpireMessage() {
+	if i.HasPrompt || !i.MessageExpired() {
+		return
+	}
+	i.Msg = ""
+	i.MsgKind = MsgInfo
+	i.HasMessage, i.HasError = false, false
+	i.HasGutter = false
+	i.ExpiresAt = time.Time{}
 }
 
 // NewBuffer returns a new infobuffer
@@ -75,10 +113,14 @@ func (i *InfoBuf) Message(msg ...any) {
 	// only display a new message if there isn't an active prompt
 	// this is to prevent overwriting an existing prompt to the user
 	if !i.HasPrompt {
-		displayMessage := fmt.Sprint(msg...)
-		// if there is no active prompt then style and display the message as normal
-		i.Msg = displayMessage
-		i.HasMessage, i.HasError = true, false
+		i.showTransientMessage(MsgInfo, fmt.Sprint(msg...))
+	}
+}
+
+// Success sends a success message to the user.
+func (i *InfoBuf) Success(msg ...any) {
+	if !i.HasPrompt {
+		i.showTransientMessage(MsgSuccess, fmt.Sprint(msg...))
 	}
 }
 
@@ -99,9 +141,7 @@ func (i *InfoBuf) Error(msg ...any) {
 	// only display a new message if there isn't an active prompt
 	// this is to prevent overwriting an existing prompt to the user
 	if !i.HasPrompt {
-		// if there is no active prompt then style and display the message as normal
-		i.Msg = fmt.Sprint(msg...)
-		i.HasMessage, i.HasError = false, true
+		i.showTransientMessage(MsgError, fmt.Sprint(msg...))
 	}
 	// TODO: add to log?
 }
@@ -126,6 +166,8 @@ func (i *InfoBuf) Prompt(prompt string, msg string, ptype string, eventcb func(s
 
 	i.PromptType = ptype
 	i.Msg = prompt
+	i.MsgKind = MsgInfo
+	i.ExpiresAt = time.Time{}
 	i.HasPrompt = true
 	i.HasMessage, i.HasError, i.HasYN = false, false, false
 	i.HasGutter = false
@@ -142,6 +184,8 @@ func (i *InfoBuf) YNPrompt(prompt string, donecb func(bool, bool)) {
 	}
 
 	i.Msg = prompt
+	i.MsgKind = MsgInfo
+	i.ExpiresAt = time.Time{}
 	i.HasPrompt = true
 	i.HasYN = true
 	i.HasMessage, i.HasError = false, false
@@ -189,6 +233,8 @@ func (i *InfoBuf) DonePrompt(canceled bool) {
 // Reset resets the infobuffer's msg and info
 func (i *InfoBuf) Reset() {
 	i.Msg = ""
+	i.MsgKind = MsgInfo
+	i.ExpiresAt = time.Time{}
 	i.HasPrompt, i.HasMessage, i.HasError = false, false, false
 	i.HasGutter = false
 }

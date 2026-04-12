@@ -110,6 +110,8 @@ typically only 18-30 lines in total.
 To create the colorscheme you need to link highlight groups with
 actual colors. This is done using the `color-link` command.
 
+Colorschemes can also provide symbols for UI elements using `symbol-link`.
+
 For example, to highlight all comments in green, you would use the command:
 
 ```
@@ -134,6 +136,15 @@ You can also put bold, italic, or underline in front of the color:
 
 ```
 color-link comment "bold red"
+```
+
+To provide a symbol for the status bar or info bar, use:
+
+```
+symbol-link success-message ""
+symbol-link error-message ""
+symbol-link prompt-message ""
+symbol-link statusline.filename ""
 ```
 
 ---
@@ -194,12 +205,34 @@ Here is a list of the colorscheme groups that you can use:
 * ignore
 * scrollbar
 * divider (Color of the divider between vertical splits)
-* message (Color of messages in the bottom line of the screen)
-* error-message (Color of error messages in the bottom line of the screen)
+* message (Text color of informational messages in the info popup)
+* success-message (Text color of success messages in the info popup)
+* error-message (Text color of error messages in the info popup)
+* prompt-message (Text color of prompts in the info popup)
+* message-popup (Background/body color of the info popup)
+* message-border (Border color of the info popup for normal messages)
+* success-message-border (Border color of the info popup for success messages)
+* error-message-border (Border color of the info popup for error messages)
+* prompt-message-border (Border color of the info popup for prompts)
 * match-brace (Color of matching brackets when `matchbracestyle` is set to `highlight`)
 * hlsearch (Color of highlighted search results when `hlsearch` is enabled)
 * tab-error (Color of tab vs space errors when `hltaberrors` is enabled)
 * trailingws (Color of trailing whitespaces when `hltrailingws` is enabled)
+
+Useful symbol groups for status and info bars include:
+
+* message
+* success-message
+* error-message
+* prompt-message
+* statusline.filename
+* statusline.line
+* statusline.col
+* statusline.filetype
+* statusline.fileformat
+* statusline.encoding
+* statusline.bindings
+* statusline.help
 
 Colorschemes must be placed in the `~/.config/micro/colorschemes` directory to
 be used.

@@ -35,11 +35,6 @@ func refreshActiveKeyMenu() {
 		return
 	}
 
-	if !config.GetGlobalOption("keymenu").(bool) {
-		InfoBar.ClearKeyMenu()
-		return
-	}
-
 	if Tabs == nil || len(Tabs.List) == 0 {
 		InfoBar.ClearKeyMenu()
 		return
@@ -68,7 +63,11 @@ func (h *BufPane) refreshKeyMenu() {
 }
 
 func (h *BufPane) keyMenuEntries() []info.KeyMenuEntry {
-	return keyMenuEntriesForPrefix(h.keyMenuPrefix())
+	prefix := h.keyMenuPrefix()
+	if len(prefix) == 0 && !config.GetGlobalOption("keymenu").(bool) {
+		return nil
+	}
+	return keyMenuEntriesForPrefix(prefix)
 }
 
 func keyMenuOptionsForPrefix(prefix []string) []keyMenuOption {

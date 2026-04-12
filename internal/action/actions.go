@@ -1111,7 +1111,7 @@ func (h *BufPane) saveBufferToFile(buf *buffer.Buffer, filename string, action s
 				if err != nil {
 					InfoBar.Error(err)
 				} else {
-					InfoBar.Message("Saved " + filename)
+					InfoBar.Success("Saved " + filename)
 					closeHiddenCleanBuffers()
 					if callback != nil {
 						callback()
@@ -1136,7 +1136,7 @@ func (h *BufPane) saveBufferToFile(buf *buffer.Buffer, filename string, action s
 			InfoBar.Error(err)
 		}
 	} else {
-		InfoBar.Message("Saved " + filename)
+		InfoBar.Success("Saved " + filename)
 		closeHiddenCleanBuffers()
 		if callback != nil {
 			callback()
@@ -1367,7 +1367,6 @@ func (h *BufPane) Undo() bool {
 	if !h.Buf.Undo() {
 		return false
 	}
-	InfoBar.Message("Undid action")
 	h.Relocate()
 	return true
 }

@@ -105,6 +105,60 @@ func (s *StatusLine) FindOpt(opt string) any {
 
 var formatParser = regexp.MustCompile(`\$\(.+?\)`)
 
+func truncateStart(text string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if runewidth.StringWidth(text) <= maxWidth {
+		return text
+	}
+	if maxWidth == 1 {
+		return "…"
+	}
+
+	width := 1
+	start := len(text)
+	for start > 0 {
+		r, _, size := util.DecodeCharacterInString(text[:start])
+		rw := runewidth.RuneWidth(r)
+		if rw <= 0 {
+			rw = 1
+		}
+		if width+rw > maxWidth {
+			break
+		}
+		start -= size
+		width += rw
+	}
+	return "…" + text[start:]
+}
+
+func fitFilenameInStatusline(leftText []byte, filename string, availableWidth int) []byte {
+	if filename == "" || availableWidth <= 0 {
+		return leftText
+	}
+
+	leftLen := util.StringWidth(leftText, util.CharacterCount(leftText), 1)
+	if leftLen <= availableWidth {
+		return leftText
+	}
+
+	filenameBytes := []byte(filename)
+	filenameIdx := bytes.Index(leftText, filenameBytes)
+	if filenameIdx < 0 {
+		return leftText
+	}
+
+	filenameWidth := runewidth.StringWidth(filename)
+	nonFilenameWidth := leftLen - filenameWidth
+	if nonFilenameWidth >= availableWidth {
+		return bytes.Replace(leftText, filenameBytes, []byte(truncateStart(filename, 1)), 1)
+	}
+
+	maxFilenameWidth := availableWidth - nonFilenameWidth
+	return bytes.Replace(leftText, filenameBytes, []byte(truncateStart(filename, maxFilenameWidth)), 1)
+}
+
 // Display draws the statusline to the screen
 func (s *StatusLine) Display() {
 	// We'll draw the line at the lowest line in the window
@@ -153,6 +207,11 @@ func (s *StatusLine) Display() {
 		if bytes.HasPrefix(name, []byte("opt")) {
 			option := name[4:]
 			return fmt.Append(nil, s.FindOpt(string(option)))
+		} else if bytes.HasPrefix(name, []byte("symbol")) {
+			if symbol := config.GetColorschemeSymbolOrDefault(string(name[7:])); symbol != "" {
+				return []byte(symbol)
+			}
+			return []byte{}
 		} else if bytes.HasPrefix(name, []byte("bind")) {
 			binding := string(name[5:])
 			resolved := bindingLabelForAction(binding)
@@ -188,6 +247,8 @@ func (s *StatusLine) Display() {
 
 	leftLen := util.StringWidth(leftText, util.CharacterCount(leftText), 1)
 	rightLen := util.StringWidth(rightText, util.CharacterCount(rightText), 1)
+	leftText = fitFilenameInStatusline(leftText, s.win.Buf.GetName(), s.win.Width-rightLen)
+	leftLen = util.StringWidth(leftText, util.CharacterCount(leftText), 1)
 
 	for x := 0; x < s.win.Width; x++ {
 		if x < leftLen {

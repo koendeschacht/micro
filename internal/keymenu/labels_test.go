@@ -8,6 +8,7 @@ func TestDescribeBindingActionUsesShortFriendlyLabels(t *testing.T) {
 		"Escape,Deselect,ClearInfo":                 "escape then deselect then clear info",
 		"Autocomplete|IndentSelection|InsertTab":    "tab",
 		"command:definition|command:references":     "definition or references",
+		"command:lsprestart":                        "restart lsp",
 		"lua:comment.comment|command:lspcompletion": "comment or completion",
 		"command-edit:goto |command:rename":         "goto line or rename",
 		"SelectObjectParagraph":                     "paragraph",

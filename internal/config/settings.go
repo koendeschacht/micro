@@ -96,8 +96,8 @@ var defaultCommonSettings = map[string]any{
 	"softwrap":        false,
 	"splitbottom":     true,
 	"splitright":      true,
-	"statusformatl":   "$(filename) $(modified)$(overwrite)($(line),$(col)) $(status.paste)| ft:$(opt:filetype) | $(opt:fileformat) | $(opt:encoding)",
-	"statusformatr":   "$(bind:ToggleKeyMenu): bindings, $(bind:ToggleHelp): help",
+	"statusformatl":   "$(filename) $(modified)$(overwrite)($(line),$(col)) | $(symbol:statusline.encoding) $(opt:encoding)",
+	"statusformatr":   "$(bind:ToggleKeyMenu) $(symbol:statusline.bindings) bindings, $(bind:ToggleHelp) $(symbol:statusline.help) help",
 	"statusline":      true,
 	"syntax":          true,
 	"tabmovement":     false,
@@ -469,18 +469,7 @@ func defaultFakeCursor() bool {
 }
 
 func GetInfoBarOffset() int {
-	offset := 0
-	if GetGlobalOption("infobar").(bool) {
-		offset++
-	}
-	if GetGlobalOption("keymenu").(bool) {
-		if KeyMenuLineCount != nil {
-			offset += KeyMenuLineCount()
-		} else {
-			offset += 2
-		}
-	}
-	return offset
+	return 0
 }
 
 // DefaultCommonSettings returns a map of all common buffer settings

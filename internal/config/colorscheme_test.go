@@ -68,13 +68,17 @@ color-link comment "#75715E,#282828"
 color-link identifier "#66D9EF,#282828" #comment
 color-link constant "#AE81FF,#282828"
 color-link constant.string "#E6DB74,#282828"
-color-link constant.string.char "#BDE6AD,#282828"`
+ color-link constant.string.char "#BDE6AD,#282828"
+symbol-link message ""
+symbol-link statusline.filename ""`
 
-	c, err := ParseColorscheme("testColorscheme", testColorscheme, nil)
+	c, symbols, err := ParseColorscheme("testColorscheme", testColorscheme, nil)
 	assert.Nil(t, err)
 
 	fg := c["comment"].GetForeground()
 	bg := c["comment"].GetBackground()
 	assert.Equal(t, tcell.NewRGBColor(117, 113, 94), fg)
 	assert.Equal(t, tcell.NewRGBColor(40, 40, 40), bg)
+	assert.Equal(t, "", symbols["message"])
+	assert.Equal(t, "", symbols["statusline.filename"])
 }
