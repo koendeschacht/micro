@@ -5,10 +5,14 @@ import (
 	"time"
 
 	"github.com/micro-editor/micro/v2/internal/buffer"
+	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/screen"
 )
 
-const transientMessageDuration = 4 * time.Second
+const (
+	defaultInfoMessageDuration  = 2 * time.Second
+	defaultErrorMessageDuration = 10 * time.Second
+)
 
 // The InfoBuf displays messages and other info at the bottom of the screen.
 // It is represented as a buffer and a message with a style.
@@ -73,8 +77,32 @@ func (i *InfoBuf) showTransientMessage(kind MsgKind, msg string) {
 	i.MsgKind = kind
 	i.HasMessage, i.HasError = kind != MsgError, kind == MsgError
 	i.HasGutter = false
-	i.ExpiresAt = time.Now().Add(transientMessageDuration)
-	time.AfterFunc(transientMessageDuration, screen.Redraw)
+	duration := transientMessageDuration(kind)
+	if duration > 0 {
+		i.ExpiresAt = time.Now().Add(duration)
+		time.AfterFunc(duration, screen.Redraw)
+	} else {
+		i.ExpiresAt = time.Time{}
+	}
+}
+
+func transientMessageDuration(kind MsgKind) time.Duration {
+	option := "infomessagetimeout"
+	fallback := defaultInfoMessageDuration
+	if kind == MsgError {
+		option = "errormessagetimeout"
+		fallback = defaultErrorMessageDuration
+	}
+
+	seconds, ok := config.GetGlobalOption(option).(float64)
+	if !ok {
+		return fallback
+	}
+	if seconds <= 0 {
+		return 0
+	}
+
+	return time.Duration(seconds * float64(time.Second))
 }
 
 func (i *InfoBuf) MessageExpired() bool {

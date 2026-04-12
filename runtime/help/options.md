@@ -130,6 +130,12 @@ Here are the available options:
 
     default value: `true`
 
+* `errormessagetimeout`: timeout in seconds for transient infobar error
+   messages. Set this to `0` to keep error messages visible until they are
+   replaced. This option is `global only`.
+
+    default value: `10`
+
 * `fakecursor`: forces micro to render the cursor using terminal colors rather
    than the actual terminal cursor. This is useful when the terminal's cursor is
    slow or otherwise unavailable/undesirable to use.
@@ -214,6 +220,12 @@ Here are the available options:
    messages and key hints are shown. This option is `global only`.
 
     default value: `true`
+
+* `infomessagetimeout`: timeout in seconds for transient infobar
+   informational and success messages. Set this to `0` to keep those
+   messages visible until they are replaced. This option is `global only`.
+
+    default value: `2`
 
 * `keepautoindent`: when using autoindent, whitespace is added for you. This
    option determines if when you move to the next line without any insertions
@@ -587,6 +599,7 @@ so that you can see what the formatting should look like.
     "divreverse": true,
     "encoding": "utf-8",
     "eofnewline": true,
+    "errormessagetimeout": 10,
     "fakecursor": false,
     "fastdirty": false,
     "fileformat": "unix",
@@ -600,6 +613,7 @@ so that you can see what the formatting should look like.
     "incsearch": true,
     "indentchar": " ",
     "infobar": true,
+    "infomessagetimeout": 2,
     "initlua": true,
     "keepautoindent": false,
     "keymenu": false,
