@@ -3,6 +3,17 @@ package keymenu
 import "testing"
 
 func TestDescribeBindingActionUsesShortFriendlyLabels(t *testing.T) {
+	ResetActionLabels()
+	defer ResetActionLabels()
+
+	RegisterActionLabel("command:definition", "definition")
+	RegisterActionLabel("command:references", "references")
+	RegisterActionLabel("command:lsprestart", "restart lsp")
+	RegisterActionLabel("command:lspcompletion", "completion")
+	RegisterActionLabel("command:rename", "rename")
+	RegisterActionLabel("command:jnextdiag", "next diag")
+	RegisterActionLabel("lua:comment.comment", "comment")
+
 	tests := map[string]string{
 		"Copy|CopyLine":                             "copy",
 		"Escape,Deselect,ClearInfo":                 "escape then deselect then clear info",

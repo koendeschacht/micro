@@ -3,13 +3,13 @@ package action
 import (
 	luar "layeh.com/gopher-luar"
 
+	"github.com/gdamore/tcell/v3"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
 	ulua "github.com/micro-editor/micro/v2/internal/lua"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/views"
-	"github.com/gdamore/tcell/v3"
 )
 
 // The TabList is a list of tabs and a window to display the tab bar
@@ -23,15 +23,14 @@ type TabList struct {
 // for each buffer
 func NewTabList(bufs []*buffer.Buffer) *TabList {
 	w, h := screen.Screen.Size()
-	iOffset := config.GetInfoBarOffset()
 	tl := new(TabList)
 	tl.List = make([]*Tab, len(bufs))
 	if len(bufs) > 1 {
 		for i, b := range bufs {
-			tl.List[i] = NewTabFromBuffer(0, 1, w, h-1-iOffset, b)
+			tl.List[i] = NewTabFromBuffer(0, 1, w, h-1, b)
 		}
 	} else {
-		tl.List[0] = NewTabFromBuffer(0, 0, w, h-iOffset, bufs[0])
+		tl.List[0] = NewTabFromBuffer(0, 0, w, h, bufs[0])
 	}
 	tl.TabWindow = display.NewTabWindow(w, 0)
 	tl.Names = make([]string, len(bufs))
@@ -81,20 +80,56 @@ func (t *TabList) RemoveTab(id uint64) {
 // that into account
 func (t *TabList) Resize() {
 	w, h := screen.Screen.Size()
-	iOffset := config.GetInfoBarOffset()
 	InfoBar.Resize(w, h-1)
 	if len(t.List) > 1 {
 		for _, p := range t.List {
 			p.Y = 1
-			p.Node.Resize(w, h-1-iOffset)
+			p.Node.Resize(w, h-1)
 			p.Resize()
 		}
 	} else if len(t.List) == 1 {
 		t.List[0].Y = 0
-		t.List[0].Node.Resize(w, h-iOffset)
+		t.List[0].Node.Resize(w, h)
 		t.List[0].Resize()
 	}
 	t.TabWindow.Resize(w, h)
+}
+
+func (t *TabList) syncLayout() {
+	if screen.Screen == nil {
+		return
+	}
+
+	w, h := screen.Screen.Size()
+	needsResize := false
+
+	if InfoBar != nil {
+		infoView := InfoBar.GetView()
+		if infoView.Width != w || infoView.Y != h-1 {
+			InfoBar.Resize(w, h-1)
+		}
+	}
+
+	if len(t.List) > 1 {
+		for _, p := range t.List {
+			if p.Y != 1 || p.Node.W != w || p.Node.H != h-1 {
+				needsResize = true
+				break
+			}
+		}
+	} else if len(t.List) == 1 {
+		if t.List[0].Y != 0 || t.List[0].Node.W != w || t.List[0].Node.H != h {
+			needsResize = true
+		}
+	}
+
+	if t.TabWindow.Width != w {
+		needsResize = true
+	}
+
+	if needsResize {
+		t.Resize()
+	}
 }
 
 // HandleEvent checks for a resize event or a mouse event on the tab bar
@@ -166,6 +201,7 @@ func (t *TabList) HandleEvent(event tcell.Event) {
 
 // Display updates the names and then displays the tab bar
 func (t *TabList) Display() {
+	t.syncLayout()
 	t.UpdateNames()
 	if len(t.List) > 1 {
 		t.TabWindow.Display()

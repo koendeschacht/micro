@@ -9,7 +9,11 @@ import (
 	"github.com/micro-editor/micro/v2/internal/display"
 	"github.com/micro-editor/micro/v2/internal/info"
 	"github.com/micro-editor/micro/v2/internal/keymenu"
+	ulua "github.com/micro-editor/micro/v2/internal/lua"
+	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/util"
+	lua "github.com/yuin/gopher-lua"
+	luar "layeh.com/gopher-luar"
 )
 
 type InfoKeyAction func(*InfoPane)
@@ -113,6 +117,25 @@ func (h *InfoPane) HandleEvent(event tcell.Event) {
 	case *tcell.EventKey:
 		ke := keyEvent(e)
 
+		if h.HasPrompt && h.PromptBufferMode && !h.HasYN {
+			done := h.DoPromptBufferKeyEvent(e, ke)
+			if done && h.HasPrompt {
+				if h.PromptUseHistory {
+					resp := h.PromptText()
+					hist := h.History[h.PromptType]
+					if h.HistoryNum >= 0 && h.HistoryNum < len(hist) && resp != hist[h.HistoryNum] {
+						h.HistoryNum = len(hist) - 1
+						hist[h.HistoryNum] = resp
+						h.HistorySearch = false
+					}
+				}
+				if h.EventCallback != nil {
+					h.EventCallback(h.PromptText())
+				}
+			}
+			return
+		}
+
 		done := h.DoKeyEvent(ke)
 		hasYN := h.HasYN
 		if e.Key() == tcell.KeyRune && hasYN {
@@ -135,12 +158,14 @@ func (h *InfoPane) HandleEvent(event tcell.Event) {
 			}
 		}
 		if done && h.HasPrompt && !hasYN {
-			resp := string(h.LineBytes(0))
-			hist := h.History[h.PromptType]
-			if resp != hist[h.HistoryNum] {
-				h.HistoryNum = len(hist) - 1
-				hist[h.HistoryNum] = resp
-				h.HistorySearch = false
+			resp := h.PromptText()
+			if h.PromptUseHistory {
+				hist := h.History[h.PromptType]
+				if h.HistoryNum >= 0 && h.HistoryNum < len(hist) && resp != hist[h.HistoryNum] {
+					h.HistoryNum = len(hist) - 1
+					hist[h.HistoryNum] = resp
+					h.HistorySearch = false
+				}
 			}
 			if h.EventCallback != nil {
 				h.EventCallback(resp)
@@ -149,6 +174,90 @@ func (h *InfoPane) HandleEvent(event tcell.Event) {
 	default:
 		h.BufPane.HandleEvent(event)
 	}
+}
+
+func (h *InfoPane) PromptBuffer(prompt string, msg string, ptype string, inputRows int, eventcb func(string), donecb func(string, bool)) {
+	h.InfoBuf.PromptBuffer(prompt, msg, ptype, inputRows, eventcb, donecb)
+}
+
+func (h *InfoPane) pluginCB(cb string, args ...any) bool {
+	largs := []lua.LValue{luar.New(ulua.L, h)}
+	for _, a := range args {
+		largs = append(largs, luar.New(ulua.L, a))
+	}
+
+	b, err := config.RunPluginFnBool(nil, cb, largs...)
+	if err != nil {
+		screen.TermMessage(err)
+	}
+	return b
+}
+
+func (h *InfoPane) execPromptBufferAction(name string) bool {
+	action, ok := BufKeyActions[name]
+	if !ok {
+		return false
+	}
+	if !h.pluginCB("preInfo" + name) {
+		return true
+	}
+	success := action(h.BufPane)
+	success = success && h.pluginCB("onInfo"+name)
+	if success && name != "Autocomplete" && name != "CycleAutocompleteBack" && name != "Escape" {
+		h.Buf.ClearAutocomplete()
+	}
+	return success
+}
+
+func (h *InfoPane) execPromptAbort() bool {
+	if !h.pluginCB("preInfoAbortCommand") {
+		return true
+	}
+	h.AbortCommand()
+	return h.pluginCB("onInfoAbortCommand")
+}
+
+func (h *InfoPane) doPromptBufferRune(r rune) bool {
+	if !h.pluginCB("preInfoRune", string(r)) {
+		return true
+	}
+	h.DoRuneInsert(r)
+	return h.pluginCB("onInfoRune", string(r))
+}
+
+func (h *InfoPane) DoPromptBufferKeyEvent(e *tcell.EventKey, ke KeyEvent) bool {
+	if ke.code == tcell.KeyRune && ke.mod == tcell.ModNone {
+		if r, ok := firstRune(e.Str()); ok {
+			return h.doPromptBufferRune(r)
+		}
+	}
+
+	switch e.Key() {
+	case tcell.KeyEnter:
+		return h.execPromptBufferAction("InsertNewline")
+	case tcell.KeyTab:
+		return h.execPromptBufferAction("InsertTab")
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		return h.execPromptBufferAction("Backspace")
+	case tcell.KeyDelete:
+		return h.execPromptBufferAction("Delete")
+	case tcell.KeyUp:
+		return h.execPromptBufferAction("CursorUp")
+	case tcell.KeyDown:
+		return h.execPromptBufferAction("CursorDown")
+	case tcell.KeyLeft:
+		return h.execPromptBufferAction("CursorLeft")
+	case tcell.KeyRight:
+		return h.execPromptBufferAction("CursorRight")
+	case tcell.KeyHome:
+		return h.execPromptBufferAction("StartOfTextToggle")
+	case tcell.KeyEnd:
+		return h.execPromptBufferAction("EndOfLine")
+	case tcell.KeyEscape:
+		return h.execPromptAbort()
+	}
+
+	return h.DoKeyEvent(ke)
 }
 
 // DoKeyEvent executes a key event for the command bar, doing any overridden actions.

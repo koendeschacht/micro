@@ -364,6 +364,11 @@
             "type": "boolean",
             "default": true
         },
+        "welcome_message": {
+            "description": "Transient startup infobar message template; supports the same $() directives as statusformatr\nhttps://github.com/micro-editor/micro/blob/master/runtime/help/options.md#options",
+            "type": "string",
+            "default": ""
+        },
         "wordwrap": {
             "description": "Whether to wrap long lines by words\nhttps://github.com/micro-editor/micro/blob/master/runtime/help/options.md#options",
             "type": "boolean",

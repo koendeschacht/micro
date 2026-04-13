@@ -139,6 +139,7 @@ var DefaultGlobalOnlySettings = map[string]any{
 	"sucmd":               "sudo",
 	"tabhighlight":        false,
 	"tabreverse":          true,
+	"welcome_message":     "",
 	"xterm":               false,
 }
 
@@ -455,6 +456,7 @@ func GetGlobalOption(name string) any {
 }
 
 var KeyMenuLineCount func() int
+var InfoBarOffset func() int
 
 func defaultFileFormat() string {
 	if runtime.GOOS == "windows" {
@@ -473,6 +475,9 @@ func defaultFakeCursor() bool {
 }
 
 func GetInfoBarOffset() int {
+	if InfoBarOffset != nil {
+		return InfoBarOffset()
+	}
 	return 0
 }
 

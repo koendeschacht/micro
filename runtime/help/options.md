@@ -227,6 +227,13 @@ Here are the available options:
 
     default value: `2`
 
+* `welcome_message`: a transient startup message shown in the infobar when this
+   option is non-empty. This option supports the same `$()` directives as the
+   statusline format options, including `bind`, `symbol`, `filename`, and
+   `opt`. This option is `global only`.
+
+    default value: `""`
+
 * `keepautoindent`: when using autoindent, whitespace is added for you. This
    option determines if when you move to the next line without any insertions
    the whitespace that was added should be deleted to remove trailing
@@ -662,6 +669,7 @@ so that you can see what the formatting should look like.
     "tabsize": 4,
     "tabstospaces": false,
     "useprimary": true,
+    "welcome_message": "",
     "wordwrap": false,
     "xterm": false
 }

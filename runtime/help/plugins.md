@@ -93,6 +93,19 @@ that micro defines:
 
 * `preRune(bufpane, rune)`: runs before the composed rune will be inserted
 
+* `onInfoAction(infopane)`: runs when `Action` is triggered inside a popup
+   buffer prompt opened with `InfoBar():PromptBuffer(...)`. For example,
+   `onInfoInsertTab(infopane)` or `onInfoCursorDown(infopane)`.
+
+* `preInfoAction(infopane)`: runs immediately before `Action` is triggered
+   inside a popup buffer prompt. Returning `false` cancels the default action.
+
+* `onInfoRune(infopane, rune)`: runs when a plain rune has been inserted into
+   a popup buffer prompt.
+
+* `preInfoRune(infopane, rune)`: runs before a plain rune will be inserted
+   into a popup buffer prompt.
+
 * `onAnyEvent()`: runs when literally anything happens. It is useful for
    detecting various changes of micro's state that cannot be detected
    using other callbacks.
@@ -133,6 +146,11 @@ The packages and their contents are listed below (in Go type signatures):
        micro and print an error formatted as `filename, lineNum: err`.
 
     - `InfoBar() *InfoPane`: return the infobar BufPane object.
+
+       `InfoPane` also exposes `PromptBuffer(prompt string, msg string,
+       ptype string, inputRows int, eventcb func(string),
+       donecb func(string, bool))`, which opens a real popup prompt backed by
+       a multiline buffer.
 
     - `Log(msg any...)`: write a message to `log.txt` (requires
        `-debug` flag, or binary built with `build-dbg`).
@@ -180,6 +198,12 @@ The packages and their contents are listed below (in Go type signatures):
        Returns true if the binding was made, and a possible error.
        This operation can be rejected by `lockbindings` to prevent undesired
        actions by the user.
+
+    - `RegisterActionLabel(action string, label string)`:
+       register a human-readable label for a bindable action string, such as
+       `command:format` or `lua:myplugin.myaction`. The key menu uses this
+       label when showing bindings. Registering the same action again replaces
+       the previous label.
 
     - `Reload()`: reload configuration files.
 
@@ -333,6 +357,11 @@ The packages and their contents are listed below (in Go type signatures):
 
     - `NewBuffer(text, path string) *Buffer`: creates a new buffer with the
        given text at a certain path.
+
+    - `NewScratchBuffer(text, name string) *Buffer`: creates a scratch buffer
+       with the given text and display name. Scratch buffers start with the
+       `unknown` filetype, but plugins can assign one with
+       `buf:SetOptionNative("filetype", "...")` to enable syntax highlighting.
 
     - `NewBufferFromFile(path string) (*Buffer, error)`: creates a new
        buffer by reading the file at the given path from disk. Returns an error

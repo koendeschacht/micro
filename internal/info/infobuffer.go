@@ -24,9 +24,12 @@ type InfoBuf struct {
 	HasError   bool
 	HasYN      bool
 
-	PromptType string
-	MsgKind    MsgKind
-	ExpiresAt  time.Time
+	PromptType       string
+	PromptInputRows  int
+	PromptBufferMode bool
+	PromptUseHistory bool
+	MsgKind          MsgKind
+	ExpiresAt        time.Time
 
 	Msg    string
 	YNResp bool
@@ -47,6 +50,50 @@ type InfoBuf struct {
 	PromptCallback func(resp string, canceled bool)
 	EventCallback  func(resp string)
 	YNCallback     func(yes bool, canceled bool)
+}
+
+func (i *InfoBuf) PromptText() string {
+	return string(i.Buffer.Substr(i.Start(), i.End()))
+}
+
+func (i *InfoBuf) beginPrompt(prompt string, msg string, ptype string, inputRows int, useHistory bool, bufferMode bool, eventcb func(string), donecb func(string, bool)) {
+	if i.HasPrompt {
+		i.DonePrompt(true)
+	}
+
+	if inputRows < 1 {
+		inputRows = 1
+	}
+
+	if useHistory {
+		if _, ok := i.History[ptype]; !ok {
+			i.History[ptype] = []string{""}
+		} else {
+			i.History[ptype] = append(i.History[ptype], "")
+		}
+		i.HistoryNum = len(i.History[ptype]) - 1
+		i.HistorySearch = false
+	} else {
+		i.HistoryNum = 0
+		i.HistorySearch = false
+		i.HistorySearchPrefix = ""
+	}
+
+	i.PromptType = ptype
+	i.PromptInputRows = inputRows
+	i.PromptBufferMode = bufferMode
+	i.PromptUseHistory = useHistory
+	i.Msg = prompt
+	i.MsgKind = MsgInfo
+	i.ExpiresAt = time.Time{}
+	i.HasPrompt = true
+	i.HasMessage, i.HasError, i.HasYN = false, false, false
+	i.HasGutter = false
+	i.YNCallback = nil
+	i.PromptCallback = donecb
+	i.EventCallback = eventcb
+	i.Replace(i.Start(), i.End(), msg)
+	i.Buffer.GetActiveCursor().GotoLoc(i.End())
 }
 
 type KeyMenuEntry struct {
@@ -179,29 +226,12 @@ func (i *InfoBuf) Error(msg ...any) {
 // The eventcb passes the current user response as the argument and donecb passes the user's message
 // and a boolean indicating if the prompt was canceled
 func (i *InfoBuf) Prompt(prompt string, msg string, ptype string, eventcb func(string), donecb func(string, bool)) {
-	// If we get another prompt mid-prompt we cancel the one getting overwritten
-	if i.HasPrompt {
-		i.DonePrompt(true)
-	}
+	i.beginPrompt(prompt, msg, ptype, 1, true, false, eventcb, donecb)
+}
 
-	if _, ok := i.History[ptype]; !ok {
-		i.History[ptype] = []string{""}
-	} else {
-		i.History[ptype] = append(i.History[ptype], "")
-	}
-	i.HistoryNum = len(i.History[ptype]) - 1
-	i.HistorySearch = false
-
-	i.PromptType = ptype
-	i.Msg = prompt
-	i.MsgKind = MsgInfo
-	i.ExpiresAt = time.Time{}
-	i.HasPrompt = true
-	i.HasMessage, i.HasError, i.HasYN = false, false, false
-	i.HasGutter = false
-	i.PromptCallback = donecb
-	i.EventCallback = eventcb
-	i.Buffer.Insert(i.Buffer.Start(), msg)
+// PromptBuffer starts a popup prompt backed by a multiline buffer.
+func (i *InfoBuf) PromptBuffer(prompt string, msg string, ptype string, inputRows int, eventcb func(string), donecb func(string, bool)) {
+	i.beginPrompt(prompt, msg, ptype, inputRows, false, true, eventcb, donecb)
 }
 
 // YNPrompt creates a yes or no prompt, and the callback returns the yes/no result and whether
@@ -216,35 +246,48 @@ func (i *InfoBuf) YNPrompt(prompt string, donecb func(bool, bool)) {
 	i.ExpiresAt = time.Time{}
 	i.HasPrompt = true
 	i.HasYN = true
+	i.PromptInputRows = 1
+	i.PromptBufferMode = false
+	i.PromptUseHistory = false
 	i.HasMessage, i.HasError = false, false
 	i.HasGutter = false
+	i.PromptCallback = nil
+	i.EventCallback = nil
 	i.YNCallback = donecb
 }
 
 // DonePrompt finishes the current prompt and indicates whether or not it was canceled
 func (i *InfoBuf) DonePrompt(canceled bool) {
 	hadYN := i.HasYN
+	promptUseHistory := i.PromptUseHistory
+	resp := i.PromptText()
 	i.HasPrompt = false
 	i.HasYN = false
 	i.HasGutter = false
+	i.PromptInputRows = 1
+	i.PromptBufferMode = false
+	i.PromptUseHistory = false
 	if !hadYN {
 		if i.PromptCallback != nil {
 			if canceled {
 				i.Replace(i.Start(), i.End(), "")
-				h := i.History[i.PromptType]
-				i.History[i.PromptType] = h[:len(h)-1]
+				if promptUseHistory {
+					h := i.History[i.PromptType]
+					i.History[i.PromptType] = h[:len(h)-1]
+				}
 				i.PromptCallback("", true)
 			} else {
-				resp := string(i.LineBytes(0))
 				i.Replace(i.Start(), i.End(), "")
-				h := i.History[i.PromptType]
-				h[len(h)-1] = resp
+				if promptUseHistory {
+					h := i.History[i.PromptType]
+					h[len(h)-1] = resp
 
-				// avoid duplicates
-				for j := len(h) - 2; j >= 0; j-- {
-					if h[j] == h[len(h)-1] {
-						i.History[i.PromptType] = append(h[:j], h[j+1:]...)
-						break
+					// avoid duplicates
+					for j := len(h) - 2; j >= 0; j-- {
+						if h[j] == h[len(h)-1] {
+							i.History[i.PromptType] = append(h[:j], h[j+1:]...)
+							break
+						}
 					}
 				}
 
@@ -264,5 +307,8 @@ func (i *InfoBuf) Reset() {
 	i.MsgKind = MsgInfo
 	i.ExpiresAt = time.Time{}
 	i.HasPrompt, i.HasMessage, i.HasError = false, false, false
+	i.PromptInputRows = 1
+	i.PromptBufferMode = false
+	i.PromptUseHistory = false
 	i.HasGutter = false
 }

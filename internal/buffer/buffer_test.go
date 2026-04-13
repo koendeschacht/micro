@@ -96,6 +96,31 @@ func check(t *testing.T, before []string, operations []operation, after []string
 	b.Close()
 }
 
+func TestScratchBufferDoesNotAutodetectFiletype(t *testing.T) {
+	assert := assert.New(t)
+
+	b := NewBufferFromString("#!/usr/bin/env python\nprint('hello')\n", "", BTScratch)
+	defer b.Close()
+
+	assert.Equal("unknown", b.FileType())
+	assert.NotNil(b.SyntaxDef)
+	assert.Equal("unknown", b.SyntaxDef.FileType)
+}
+
+func TestScratchBufferFiletypeCanBeSet(t *testing.T) {
+	assert := assert.New(t)
+
+	b := NewBufferFromString("package main\n", "", BTScratch)
+	defer b.Close()
+
+	err := b.SetOptionNative("filetype", "go")
+
+	assert.NoError(err)
+	assert.Equal("go", b.FileType())
+	assert.NotNil(b.SyntaxDef)
+	assert.Equal("go", b.SyntaxDef.FileType)
+}
+
 const maxLineLength = 200
 
 var alphabet = []rune(" abcdeäم📚")

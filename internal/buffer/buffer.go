@@ -53,7 +53,7 @@ var (
 	// BTLog is a log buffer
 	BTLog = BufType{2, true, true, false}
 	// BTScratch is a buffer that cannot be saved (for scratch work)
-	BTScratch = BufType{3, false, true, false}
+	BTScratch = BufType{3, false, true, true}
 	// BTRaw is a buffer that shows raw terminal events
 	BTRaw = BufType{4, false, true, false}
 	// BTInfo is a buffer for inputting information
@@ -869,6 +869,10 @@ func (b *Buffer) UpdateRules() {
 		return
 	}
 	ft := b.Settings["filetype"].(string)
+	autodetectFiletype := ft == "unknown" || ft == ""
+	if b.Type.Scratch && autodetectFiletype {
+		autodetectFiletype = false
+	}
 	if ft == "off" {
 		b.ClearMatches()
 		b.SyntaxDef = nil
@@ -912,7 +916,7 @@ func (b *Buffer) UpdateRules() {
 		matchedFileName := false
 		matchedFileHeader := false
 
-		if ft == "unknown" || ft == "" {
+		if autodetectFiletype {
 			if header.MatchFileName(b.Path) {
 				matchedFileName = true
 			}
@@ -966,7 +970,7 @@ func (b *Buffer) UpdateRules() {
 				continue
 			}
 
-			if ft == "unknown" || ft == "" {
+			if autodetectFiletype {
 				if header.MatchFileName(b.Path) {
 					fnameMatches = append(fnameMatches, syntaxFileInfo{header, f.Name(), nil})
 				}

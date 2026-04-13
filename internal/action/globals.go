@@ -3,6 +3,7 @@ package action
 import (
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
+	"github.com/micro-editor/micro/v2/internal/display"
 	"github.com/micro-editor/micro/v2/internal/info"
 )
 
@@ -20,6 +21,15 @@ func InitGlobals() {
 			return 0
 		}
 		return InfoBar.KeyMenuLineCount()
+	}
+	config.InfoBarOffset = func() int {
+		if InfoBar == nil {
+			return 0
+		}
+		if win, ok := InfoBar.BWindow.(*display.InfoWindow); ok {
+			return win.PopupHeight()
+		}
+		return 0
 	}
 	info.RootKeyMenuEntries = func() []info.KeyMenuEntry {
 		return keyMenuEntriesForPrefix(nil)

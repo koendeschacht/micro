@@ -23,6 +23,7 @@ import (
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/clipboard"
 	"github.com/micro-editor/micro/v2/internal/config"
+	"github.com/micro-editor/micro/v2/internal/display"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/shell"
 	"github.com/micro-editor/micro/v2/internal/util"
@@ -303,6 +304,20 @@ func exit(rc int) {
 	os.Exit(rc)
 }
 
+func showConfiguredWelcomeMessage() {
+	message, ok := config.GetGlobalOption("welcome_message").(string)
+	if !ok || message == "" || action.InfoBar == nil || action.Tabs == nil || len(action.Tabs.List) == 0 {
+		return
+	}
+
+	pane := action.MainTab().CurPane()
+	if pane == nil || pane.Buf == nil {
+		return
+	}
+
+	action.InfoBar.Message(display.FormatStatusText(pane.Buf, message))
+}
+
 func main() {
 	defer func() {
 		if util.Stdout.Len() > 0 {
@@ -458,6 +473,8 @@ func main() {
 	if err != nil {
 		screen.TermMessage(err)
 	}
+
+	showConfiguredWelcomeMessage()
 
 	if clipErr != nil {
 		log.Println(clipErr, " or change 'clipboard' option")

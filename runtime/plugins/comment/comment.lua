@@ -218,6 +218,8 @@ end
 
 function init()
     config.MakeCommand("comment", comment, config.NoComplete)
+    config.RegisterActionLabel("command:comment", "comment")
+    config.RegisterActionLabel("lua:comment.comment", "comment")
     config.TryBindKey("Alt-/", "lua:comment.comment", false)
     config.TryBindKey("CtrlUnderscore", "lua:comment.comment", false)
     config.AddRuntimeFile("comment", config.RTHelp, "help/comment.md")

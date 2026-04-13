@@ -131,8 +131,7 @@ func (h *BufPane) RetabCmd(args []string) {
 // RawCmd opens a debug view showing the decoded events micro receives.
 func (h *BufPane) RawCmd(args []string) {
 	width, height := screen.Screen.Size()
-	iOffset := config.GetInfoBarOffset()
-	tp := NewTabFromPane(0, 0, width, height-iOffset, NewRawPane(nil))
+	tp := NewTabFromPane(0, 0, width, height, NewRawPane(nil))
 	Tabs.AddTab(tp)
 	Tabs.SetActive(len(Tabs.List) - 1)
 }
@@ -549,7 +548,6 @@ func (h *BufPane) EvalCmd(args []string) {
 // If no file is given, it opens an empty buffer in a new tab
 func (h *BufPane) NewTabCmd(args []string) {
 	width, height := screen.Screen.Size()
-	iOffset := config.GetInfoBarOffset()
 	if len(args) > 0 {
 		for _, a := range args {
 			b, err := buffer.NewBufferFromFile(a, buffer.BTDefault)
@@ -557,13 +555,13 @@ func (h *BufPane) NewTabCmd(args []string) {
 				InfoBar.Error(err)
 				return
 			}
-			tp := NewTabFromBuffer(0, 0, width, height-1-iOffset, b)
+			tp := NewTabFromBuffer(0, 0, width, height-1, b)
 			Tabs.AddTab(tp)
 			Tabs.SetActive(len(Tabs.List) - 1)
 		}
 	} else {
 		b := buffer.NewBufferFromString("", "", buffer.BTDefault)
-		tp := NewTabFromBuffer(0, 0, width, height-iOffset, b)
+		tp := NewTabFromBuffer(0, 0, width, height, b)
 		Tabs.AddTab(tp)
 		Tabs.SetActive(len(Tabs.List) - 1)
 	}

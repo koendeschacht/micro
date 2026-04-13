@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/micro-editor/micro/v2/internal/keymenu"
 	rt "github.com/micro-editor/micro/v2/runtime"
 )
 
@@ -180,6 +181,7 @@ func InitRuntimeFiles(user bool) {
 // InitPlugins initializes the plugins
 func InitPlugins() {
 	Plugins = Plugins[:0]
+	keymenu.ResetActionLabels()
 	initlua := filepath.Join(ConfigDir, "init.lua")
 
 	if _, err := os.Stat(initlua); !os.IsNotExist(err) {

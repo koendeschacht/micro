@@ -95,15 +95,46 @@ func NewStatusLine(win *BufWindow) *StatusLine {
 	return s
 }
 
-// FindOpt finds a given option in the current buffer's settings
-func (s *StatusLine) FindOpt(opt string) any {
-	if val, ok := s.win.Buf.Settings[opt]; ok {
-		return val
+func findOpt(b *buffer.Buffer, opt string) any {
+	if b != nil {
+		if val, ok := b.Settings[opt]; ok {
+			return val
+		}
 	}
 	return "null"
 }
 
 var formatParser = regexp.MustCompile(`\$\(.+?\)`)
+
+// FormatStatusText expands the statusline template directives in format.
+func FormatStatusText(b *buffer.Buffer, format string) string {
+	text := []byte(format)
+	text = formatParser.ReplaceAllFunc(text, func(match []byte) []byte {
+		name := match[2 : len(match)-1]
+		if bytes.HasPrefix(name, []byte("opt")) {
+			option := name[4:]
+			return fmt.Append(nil, findOpt(b, string(option)))
+		} else if bytes.HasPrefix(name, []byte("symbol")) {
+			if symbol := config.GetColorschemeSymbolOrDefault(string(name[7:])); symbol != "" {
+				return []byte(symbol)
+			}
+			return []byte{}
+		} else if bytes.HasPrefix(name, []byte("bind")) {
+			binding := string(name[5:])
+			resolved := bindingLabelForAction(binding)
+			if resolved == "" {
+				return []byte("null")
+			}
+			return []byte(resolved)
+		} else if b != nil {
+			if fn, ok := statusInfo[string(name)]; ok {
+				return []byte(fn(b))
+			}
+		}
+		return []byte{}
+	})
+	return string(text)
+}
 
 func truncateStart(text string, maxWidth int) string {
 	if maxWidth <= 0 {
@@ -202,35 +233,8 @@ func (s *StatusLine) Display() {
 		return
 	}
 
-	formatter := func(match []byte) []byte {
-		name := match[2 : len(match)-1]
-		if bytes.HasPrefix(name, []byte("opt")) {
-			option := name[4:]
-			return fmt.Append(nil, s.FindOpt(string(option)))
-		} else if bytes.HasPrefix(name, []byte("symbol")) {
-			if symbol := config.GetColorschemeSymbolOrDefault(string(name[7:])); symbol != "" {
-				return []byte(symbol)
-			}
-			return []byte{}
-		} else if bytes.HasPrefix(name, []byte("bind")) {
-			binding := string(name[5:])
-			resolved := bindingLabelForAction(binding)
-			if resolved == "" {
-				return []byte("null")
-			}
-			return []byte(resolved)
-		} else {
-			if fn, ok := statusInfo[string(name)]; ok {
-				return []byte(fn(s.win.Buf))
-			}
-			return []byte{}
-		}
-	}
-
-	leftText := []byte(s.win.Buf.Settings["statusformatl"].(string))
-	leftText = formatParser.ReplaceAllFunc(leftText, formatter)
-	rightText := []byte(s.win.Buf.Settings["statusformatr"].(string))
-	rightText = formatParser.ReplaceAllFunc(rightText, formatter)
+	leftText := []byte(FormatStatusText(s.win.Buf, s.win.Buf.Settings["statusformatl"].(string)))
+	rightText := []byte(FormatStatusText(s.win.Buf, s.win.Buf.Settings["statusformatr"].(string)))
 
 	statusLineStyle := config.DefStyle.Reverse(true)
 	if s.win.IsActive() {

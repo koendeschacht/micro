@@ -5,6 +5,25 @@ import (
 	"unicode"
 )
 
+var registeredActionLabels = map[string]string{}
+
+func ResetActionLabels() {
+	registeredActionLabels = map[string]string{}
+}
+
+func RegisterActionLabel(action, label string) {
+	action = strings.TrimSpace(action)
+	label = strings.TrimSpace(label)
+	if action == "" {
+		return
+	}
+	if label == "" {
+		delete(registeredActionLabels, action)
+		return
+	}
+	registeredActionLabels[action] = label
+}
+
 var actionLabels = map[string]string{
 	"ClipboardHistory":       "clipboard",
 	"CommandMode":            "command",
@@ -39,31 +58,8 @@ var compoundActionLabels = map[string]string{
 }
 
 var commandLabels = map[string]string{
-	"definition":      "definition",
-	"copypath":        "path",
-	"explore":         "explore",
-	"format":          "format",
-	"fzf":             "files",
-	"fzfgrep":         "grep",
 	"goto":            "goto line",
-	"jnextdiag":       "next diag",
-	"jprevdiag":       "prev diag",
-	"kittyterm":       "terminal",
-	"lspcompletion":   "completion",
-	"lsprestart":      "restart lsp",
-	"pytestfile":      "test file",
-	"pytestnode":      "test node",
-	"pytestretry":     "test retry",
-	"references":      "references",
-	"rename":          "rename",
-	"resethunk":       "reset hunk",
 	"toggle softwrap": "soft wrap",
-	"uvrunfile":       "run",
-}
-
-var luaLabels = map[string]string{
-	"comment.comment":  "comment",
-	"templates.expand": "template",
 }
 
 func describeTextObjectBinding(action string) string {
@@ -94,6 +90,9 @@ func describeTextObjectBinding(action string) string {
 
 func describeCommand(command string) string {
 	command = strings.TrimSpace(command)
+	if label, ok := registeredActionLabels["command:"+command]; ok {
+		return label
+	}
 	if label, ok := commandLabels[command]; ok {
 		return label
 	}
@@ -119,6 +118,9 @@ func describeSingleBindingAction(action string) string {
 	if action == "" {
 		return ""
 	}
+	if label, ok := registeredActionLabels[action]; ok {
+		return label
+	}
 
 	if label := describeTextObjectBinding(action); label != "" {
 		return label
@@ -135,9 +137,6 @@ func describeSingleBindingAction(action string) string {
 		return describeCommand(strings.TrimSpace(strings.TrimPrefix(action, "command:")))
 	case strings.HasPrefix(action, "lua:"):
 		name := strings.TrimSpace(strings.TrimPrefix(action, "lua:"))
-		if label, ok := luaLabels[name]; ok {
-			return label
-		}
 		return name
 	default:
 		return humanizeAction(action)
@@ -175,6 +174,9 @@ func describeBindingSeparator(separator rune) string {
 
 func DescribeBindingAction(action string) string {
 	action = strings.TrimSpace(action)
+	if label, ok := registeredActionLabels[action]; ok {
+		return label
+	}
 	if label, ok := compoundActionLabels[action]; ok {
 		return label
 	}

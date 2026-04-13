@@ -21,6 +21,7 @@ type popupRect struct {
 	InnerW, InnerH int
 	MessageY       int
 	InputY         int
+	InputRows      int
 }
 
 type InfoWindow struct {
@@ -250,13 +251,22 @@ func (i *InfoWindow) messageLines(innerW int) []string {
 		return nil
 	}
 	if i.HasPrompt {
+		if i.Msg == "" {
+			return nil
+		}
 		return wrapTextToWidth(i.messagePrefix()+i.Msg, innerW)
 	}
 	return wrapTextToWidth(i.messagePrefix()+i.Msg, innerW)
 }
 
-func (i *InfoWindow) hasInputLine() bool {
-	return i.HasPrompt && !i.HasYN
+func (i *InfoWindow) inputRowCount() int {
+	if !i.HasPrompt || i.HasYN {
+		return 0
+	}
+	if i.PromptInputRows > 1 {
+		return i.PromptInputRows
+	}
+	return 1
 }
 
 func (i *InfoWindow) popupInnerWidth() int {
@@ -269,11 +279,19 @@ func (i *InfoWindow) popupInnerWidth() int {
 	}
 
 	if i.HasPrompt {
-		for _, line := range strings.Split(i.messagePrefix()+i.Msg, "\n") {
-			innerW = util.Max(innerW, runewidth.StringWidth(line))
+		if i.Msg != "" {
+			for _, line := range strings.Split(i.messagePrefix()+i.Msg, "\n") {
+				if line != "" {
+					innerW = util.Max(innerW, runewidth.StringWidth(line))
+				}
+			}
 		}
-		if i.hasInputLine() {
-			innerW = util.Max(innerW, runewidth.StringWidth(string(i.Buffer.LineBytes(0))))
+		for row := 0; row < i.inputRowCount(); row++ {
+			line := ""
+			if row < i.Buffer.LinesNum() {
+				line = string(i.Buffer.LineBytes(row))
+			}
+			innerW = util.Max(innerW, runewidth.StringWidth(line))
 		}
 	} else if i.HasMessage || i.HasError {
 		for _, line := range strings.Split(i.messagePrefix()+i.Msg, "\n") {
@@ -307,10 +325,7 @@ func (i *InfoWindow) popupGeometry() (popupRect, [][]info.KeyMenuEntry, []string
 	innerW := i.popupInnerWidth()
 	keyLayout := i.keyMenuLayout(innerW)
 	messageLines := i.messageLines(innerW)
-	inputRows := 0
-	if i.hasInputLine() {
-		inputRows = 1
-	}
+	inputRows := i.inputRowCount()
 	contentRows := len(keyLayout) + len(messageLines) + inputRows
 	maxContentRows := util.Max(1, i.Y-2)
 
@@ -344,63 +359,91 @@ func (i *InfoWindow) popupGeometry() (popupRect, [][]info.KeyMenuEntry, []string
 		inputY = messageY + len(messageLines)
 	}
 	rect := popupRect{
-		X:        0,
-		Y:        i.Y - (contentRows + 2),
-		Width:    boxW,
-		Height:   contentRows + 2,
-		InnerX:   1,
-		InnerY:   i.Y - (contentRows + 1),
-		InnerW:   boxW - 2,
-		InnerH:   contentRows,
-		MessageY: messageY,
-		InputY:   inputY,
+		X:         0,
+		Y:         i.Y - (contentRows + 2),
+		Width:     boxW,
+		Height:    contentRows + 2,
+		InnerX:    1,
+		InnerY:    i.Y - (contentRows + 1),
+		InnerW:    boxW - 2,
+		InnerH:    contentRows,
+		MessageY:  messageY,
+		InputY:    inputY,
+		InputRows: inputRows,
 	}
 	return rect, keyLayout, messageLines, true
 }
 
+func (i *InfoWindow) PopupHeight() int {
+	rect, _, _, ok := i.popupGeometry()
+	if !ok {
+		return 0
+	}
+
+	height := rect.Height
+	if i.HasSuggestions && len(i.Suggestions) > 1 && rect.Y > 0 && rect.InnerW > 0 {
+		height++
+	}
+
+	return height
+}
+
 func (i *InfoWindow) LocFromVisual(vloc buffer.Loc) buffer.Loc {
-	c := i.Buffer.GetActiveCursor()
-	l := i.Buffer.LineBytes(0)
 	view := i.BufView()
-	return buffer.Loc{c.GetCharPosInLine(l, vloc.X-view.X), 0}
+	y := util.Clamp(vloc.Y-view.Y, 0, util.Max(0, i.inputRowCount()-1))
+	line := []byte{}
+	if y < i.Buffer.LinesNum() {
+		line = i.Buffer.LineBytes(y)
+	}
+	c := i.Buffer.GetActiveCursor()
+	return buffer.Loc{c.GetCharPosInLine(line, vloc.X-view.X), y}
 }
 
 func (i *InfoWindow) BufView() View {
 	rect, _, _, ok := i.popupGeometry()
-	if !ok || !i.hasInputLine() {
+	inputRows := i.inputRowCount()
+	if !ok || inputRows == 0 {
 		return View{X: 0, Y: i.Y, Width: i.Width, Height: 1, StartLine: SLoc{0, 0}, StartCol: 0}
 	}
 	return View{
 		X:         rect.InnerX,
 		Y:         rect.InputY,
 		Width:     rect.InnerW,
-		Height:    1,
+		Height:    inputRows,
 		StartLine: SLoc{0, 0},
 		StartCol:  0,
 	}
 }
 
-func (i *InfoWindow) Scroll(s SLoc, n int) SLoc       { return s }
-func (i *InfoWindow) Diff(s1, s2 SLoc) int            { return 0 }
-func (i *InfoWindow) SLocFromLoc(loc buffer.Loc) SLoc { return SLoc{0, 0} }
+func (i *InfoWindow) Scroll(s SLoc, n int) SLoc {
+	maxLine := util.Max(0, i.inputRowCount()-1)
+	line := util.Clamp(s.Line+n, 0, maxLine)
+	return SLoc{Line: line, Row: 0}
+}
+func (i *InfoWindow) Diff(s1, s2 SLoc) int            { return s2.Line - s1.Line }
+func (i *InfoWindow) SLocFromLoc(loc buffer.Loc) SLoc { return SLoc{Line: loc.Y, Row: 0} }
 
 func (i *InfoWindow) VLocFromLoc(loc buffer.Loc) VLoc {
 	view := i.BufView()
-	return VLoc{SLoc{0, 0}, view.X + loc.X}
+	return VLoc{SLoc{Line: loc.Y, Row: 0}, view.X + loc.X}
 }
 
 func (i *InfoWindow) LocFromVLoc(vloc VLoc) buffer.Loc {
 	view := i.BufView()
-	return buffer.Loc{X: util.Max(0, vloc.VisualX-view.X), Y: 0}
+	line := util.Clamp(vloc.Line, 0, util.Max(0, i.inputRowCount()-1))
+	return buffer.Loc{X: util.Max(0, vloc.VisualX-view.X), Y: line}
 }
 
 func (i *InfoWindow) IsVirtualRow(s SLoc) bool { return false }
 
 func (i *InfoWindow) Clear() {}
 
-func (i *InfoWindow) displayBuffer(rect popupRect, y int, style tcell.Style) {
+func (i *InfoWindow) displayBufferLine(rect popupRect, y int, lineIdx int, style tcell.Style) {
 	b := i.Buffer
-	line := b.LineBytes(0)
+	line := []byte{}
+	if lineIdx < b.LinesNum() {
+		line = b.LineBytes(lineIdx)
+	}
 	activeC := b.GetActiveCursor()
 
 	blocX := 0
@@ -413,7 +456,7 @@ func (i *InfoWindow) displayBuffer(rect popupRect, y int, style tcell.Style) {
 
 	draw := func(r rune, combc []rune, drawStyle tcell.Style) {
 		if nColsBeforeStart <= 0 && vlocX < maxX {
-			bloc := buffer.Loc{X: blocX, Y: 0}
+			bloc := buffer.Loc{X: blocX, Y: lineIdx}
 			if activeC.HasSelection() &&
 				(bloc.GreaterEqual(activeC.CurSelection[0]) && bloc.LessThan(activeC.CurSelection[1]) ||
 					bloc.LessThan(activeC.CurSelection[0]) && bloc.GreaterEqual(activeC.CurSelection[1])) {
@@ -450,13 +493,24 @@ func (i *InfoWindow) displayBuffer(rect popupRect, y int, style tcell.Style) {
 		blocX++
 		line = line[size:]
 
-		if activeC.X == curBX && curVX < maxX {
+		if activeC.Y == lineIdx && activeC.X == curBX && curVX < maxX {
 			screen.ShowCursor(curVX, y)
 		}
 		totalwidth += width
 	}
-	if activeC.X == blocX && vlocX < maxX {
+	if activeC.Y == lineIdx && activeC.X == blocX && vlocX < maxX {
 		screen.ShowCursor(vlocX, y)
+	}
+}
+
+func (i *InfoWindow) displayBuffer(rect popupRect, style tcell.Style) {
+	for row := 0; row < rect.InputRows; row++ {
+		y := rect.InputY + row
+		drawPopupLines(rect.InnerX, y, rect.InnerW, 0, []string{""},
+			func(int) tcell.Style { return i.popupStyle() },
+			func(int) tcell.Style { return style },
+		)
+		i.displayBufferLine(rect, y, row, style)
 	}
 }
 
@@ -629,12 +683,8 @@ func (i *InfoWindow) Display() {
 		)
 	}
 
-	if i.hasInputLine() && rect.InputY >= 0 {
-		drawPopupLines(rect.InnerX, rect.InputY, rect.InnerW, 0, []string{""},
-			func(int) tcell.Style { return baseStyle },
-			func(int) tcell.Style { return messageStyle },
-		)
-		i.displayBuffer(rect, rect.InputY, messageStyle)
+	if rect.InputRows > 0 && rect.InputY >= 0 {
+		i.displayBuffer(rect, messageStyle)
 	}
 
 	i.displaySuggestions(rect)

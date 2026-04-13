@@ -13,6 +13,7 @@ import (
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
 	"github.com/micro-editor/micro/v2/internal/display"
+	"github.com/micro-editor/micro/v2/internal/keymenu"
 	ulua "github.com/micro-editor/micro/v2/internal/lua"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/micro-editor/micro/v2/internal/shell"
@@ -104,6 +105,7 @@ func luaImportMicroConfig() *lua.LTable {
 	ulua.L.SetField(pkg, "RegisterCommonOption", luar.New(ulua.L, config.RegisterCommonOptionPlug))
 	ulua.L.SetField(pkg, "RegisterGlobalOption", luar.New(ulua.L, config.RegisterGlobalOptionPlug))
 	ulua.L.SetField(pkg, "GetGlobalOption", luar.New(ulua.L, config.GetGlobalOption))
+	ulua.L.SetField(pkg, "RegisterActionLabel", luar.New(ulua.L, keymenu.RegisterActionLabel))
 	ulua.L.SetField(pkg, "SetGlobalOption", luar.New(ulua.L, action.SetGlobalOptionPlug))
 	ulua.L.SetField(pkg, "SetGlobalOptionNative", luar.New(ulua.L, action.SetGlobalOptionNativePlug))
 	ulua.L.SetField(pkg, "ConfigDir", luar.New(ulua.L, config.ConfigDir))

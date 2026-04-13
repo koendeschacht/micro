@@ -106,6 +106,7 @@ func (w *BufWindow) IsActive() bool {
 // It is not exactly the same as the whole window which also contains gutter,
 // ruler, scrollbar and statusline.
 func (w *BufWindow) BufView() View {
+	w.updateDisplayInfo()
 	return View{
 		X:         w.X + w.gutterOffset,
 		Y:         w.Y,
@@ -131,9 +132,10 @@ func (w *BufWindow) updateDisplayInfo() {
 	if b.Settings["statusline"].(bool) || w.drawDivider {
 		w.bufHeight--
 	}
+	w.bufHeight = util.Max(0, w.bufHeight-config.GetInfoBarOffset())
 
 	scrollbarWidth := 0
-	if w.Buf.Settings["scrollbar"].(bool) && w.Buf.LinesNum() > w.Height && w.Width > 0 {
+	if w.Buf.Settings["scrollbar"].(bool) && w.Buf.LinesNum() > w.bufHeight && w.Width > 0 {
 		scrollbarWidth = 1
 	}
 
@@ -221,6 +223,7 @@ func (w *BufWindow) Clear() {
 // This is useful if the user has scrolled far away, and then starts typing
 // Returns true if the window location is moved
 func (w *BufWindow) Relocate() bool {
+	w.updateDisplayInfo()
 	b := w.Buf
 	height := w.bufHeight
 	ret := false
@@ -1460,13 +1463,13 @@ func (w *BufWindow) displayStatusLine() {
 }
 
 func (w *BufWindow) displayScrollBar() {
-	if w.Buf.Settings["scrollbar"].(bool) && w.Buf.LinesNum() > w.Height {
+	if w.Buf.Settings["scrollbar"].(bool) && w.Buf.LinesNum() > w.bufHeight && w.bufHeight > 0 {
 		scrollX := w.X + w.Width - 1
-		barsize := int(float64(w.Height) / float64(w.Buf.LinesNum()) * float64(w.Height))
+		barsize := int(float64(w.bufHeight) / float64(w.Buf.LinesNum()) * float64(w.bufHeight))
 		if barsize < 1 {
 			barsize = 1
 		}
-		barstart := w.Y + int(float64(w.StartLine.Line)/float64(w.Buf.LinesNum())*float64(w.Height))
+		barstart := w.Y + int(float64(w.StartLine.Line)/float64(w.Buf.LinesNum())*float64(w.bufHeight))
 
 		scrollBarStyle := config.DefStyle.Reverse(true)
 		if style, ok := config.Colorscheme["scrollbar"]; ok {
