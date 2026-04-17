@@ -407,6 +407,14 @@ func (h *BufPane) ResizePane(size int) {
 	h.tab.Resize()
 }
 
+func (h *BufPane) SetSidePaneJSON(serialized string, version int) bool {
+	bw, ok := h.BWindow.(*display.BufWindow)
+	if !ok {
+		return false
+	}
+	return bw.SetSidePaneJSON(serialized, version)
+}
+
 // PluginCB calls all plugin callbacks with a certain name and displays an
 // error if there is one and returns the aggregate boolean response.
 // The bufpane is passed as the first argument to the callbacks,

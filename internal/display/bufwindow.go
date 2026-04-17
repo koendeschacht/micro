@@ -26,6 +26,8 @@ type BufWindow struct {
 	bufWidth         int
 	bufHeight        int
 	gutterOffset     int
+	sidePane         *SidePaneState
+	sidePaneVersion  int
 	hasMessage       bool
 	maxLineNumLength int
 	drawDivider      bool
@@ -146,6 +148,9 @@ func (w *BufWindow) updateDisplayInfo() {
 	w.maxLineNumLength = len(strconv.Itoa(b.LinesNum()))
 
 	w.gutterOffset = 0
+	if w.sidePane != nil && w.sidePane.Width > 0 {
+		w.gutterOffset += w.sidePane.Width
+	}
 	if w.hasMessage {
 		w.gutterOffset += 2
 	}
@@ -361,6 +366,50 @@ func (w *BufWindow) drawDecorationGutter(backgroundStyle tcell.Style, softwrappe
 
 	screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, symbol, nil, style)
 	vloc.X++
+}
+
+func (w *BufWindow) drawSidePane(backgroundStyle tcell.Style, softwrapped bool, vloc *buffer.Loc, bloc *buffer.Loc) {
+	if w.sidePane == nil || w.sidePane.Width <= 0 || vloc.X >= w.gutterOffset {
+		return
+	}
+
+	width := util.Min(w.sidePane.Width, w.gutterOffset-vloc.X)
+	style := backgroundStyle
+	text := ""
+	if !softwrapped {
+		if entry, ok := w.sidePane.Entries[bloc.Y]; ok {
+			text = trimToWidth(entry.Text, width)
+			if entry.Group != "" {
+				style = applyStyleOverlay(style, config.GetColor(entry.Group))
+			}
+		}
+	}
+
+	visualX := 0
+	for _, r := range text {
+		rw := runewidth.RuneWidth(r)
+		if rw <= 0 {
+			rw = 1
+		}
+		if visualX+rw > width {
+			break
+		}
+
+		screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, r, nil, style)
+		vloc.X++
+		visualX++
+		for i := 1; i < rw && visualX < width; i++ {
+			screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, ' ', nil, style)
+			vloc.X++
+			visualX++
+		}
+	}
+
+	for visualX < width {
+		screen.SetContent(w.X+vloc.X, w.Y+vloc.Y, ' ', nil, style)
+		vloc.X++
+		visualX++
+	}
 }
 
 func (w *BufWindow) drawLineNum(lineNumStyle tcell.Style, softwrapped bool, vloc *buffer.Loc, bloc *buffer.Loc) {
@@ -1011,6 +1060,8 @@ func (w *BufWindow) displayBuffer() {
 		}
 
 		if vloc.Y >= 0 {
+			w.drawSidePane(s, false, &vloc, &bloc)
+
 			if w.hasMessage {
 				w.drawGutter(&vloc, &bloc)
 			}
@@ -1218,6 +1269,8 @@ func (w *BufWindow) displayBuffer() {
 			vloc.X = 0
 
 			if vloc.Y >= 0 {
+				w.drawSidePane(lineNumStyle, true, &vloc, &bloc)
+
 				if w.hasMessage {
 					w.drawGutter(&vloc, &bloc)
 				}
