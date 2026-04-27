@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gdamore/tcell/v3"
 	luar "layeh.com/gopher-luar"
 
 	runewidth "github.com/mattn/go-runewidth"
@@ -26,6 +27,14 @@ type StatusLine struct {
 	Info map[string]func(*buffer.Buffer) string
 
 	win *BufWindow
+}
+
+const statusStyleMarker = byte(0x1f)
+
+type statusCell struct {
+	r     rune
+	combc []rune
+	style tcell.Style
 }
 
 var statusInfo = map[string]func(*buffer.Buffer) string{
@@ -164,30 +173,138 @@ func truncateStart(text string, maxWidth int) string {
 	return "…" + text[start:]
 }
 
-func fitFilenameInStatusline(leftText []byte, filename string, availableWidth int) []byte {
+func truncateStatusCellsStart(cells []statusCell, maxWidth int) []statusCell {
+	if maxWidth <= 0 || len(cells) == 0 {
+		return nil
+	}
+	if statusCellsWidth(cells) <= maxWidth {
+		return cells
+	}
+	if maxWidth == 1 {
+		return []statusCell{{r: '…', style: cells[0].style}}
+	}
+
+	width := 1
+	start := len(cells)
+	for start > 0 {
+		rw := runewidth.RuneWidth(cells[start-1].r)
+		if rw <= 0 {
+			rw = 1
+		}
+		if width+rw > maxWidth {
+			break
+		}
+		start--
+		width += rw
+	}
+
+	trimmed := make([]statusCell, 0, len(cells)-start+1)
+	ellipsisStyle := cells[0].style
+	if start < len(cells) {
+		ellipsisStyle = cells[start].style
+	}
+	trimmed = append(trimmed, statusCell{r: '…', style: ellipsisStyle})
+	trimmed = append(trimmed, cells[start:]...)
+	return trimmed
+}
+
+func fitFilenameInStatusline(leftCells []statusCell, filename string, availableWidth int) []statusCell {
 	if filename == "" || availableWidth <= 0 {
-		return leftText
+		return leftCells
 	}
 
-	leftLen := util.StringWidth(leftText, util.CharacterCount(leftText), 1)
+	leftLen := statusCellsWidth(leftCells)
 	if leftLen <= availableWidth {
-		return leftText
+		return leftCells
 	}
 
-	filenameBytes := []byte(filename)
-	filenameIdx := bytes.Index(leftText, filenameBytes)
+	filenameRunes := []rune(filename)
+	filenameIdx := -1
+	for i := 0; i <= len(leftCells)-len(filenameRunes); i++ {
+		match := true
+		for j, r := range filenameRunes {
+			if leftCells[i+j].r != r {
+				match = false
+				break
+			}
+		}
+		if match {
+			filenameIdx = i
+			break
+		}
+	}
 	if filenameIdx < 0 {
-		return leftText
+		return leftCells
 	}
 
-	filenameWidth := runewidth.StringWidth(filename)
+	filenameCells := leftCells[filenameIdx : filenameIdx+len(filenameRunes)]
+	filenameWidth := statusCellsWidth(filenameCells)
 	nonFilenameWidth := leftLen - filenameWidth
 	if nonFilenameWidth >= availableWidth {
-		return bytes.Replace(leftText, filenameBytes, []byte(truncateStart(filename, 1)), 1)
+		trimmedFilename := truncateStatusCellsStart(filenameCells, 1)
+		trimmed := append([]statusCell{}, leftCells[:filenameIdx]...)
+		trimmed = append(trimmed, trimmedFilename...)
+		trimmed = append(trimmed, leftCells[filenameIdx+len(filenameRunes):]...)
+		return trimmed
 	}
 
 	maxFilenameWidth := availableWidth - nonFilenameWidth
-	return bytes.Replace(leftText, filenameBytes, []byte(truncateStart(filename, maxFilenameWidth)), 1)
+	trimmedFilename := truncateStatusCellsStart(filenameCells, maxFilenameWidth)
+	trimmed := append([]statusCell{}, leftCells[:filenameIdx]...)
+	trimmed = append(trimmed, trimmedFilename...)
+	trimmed = append(trimmed, leftCells[filenameIdx+len(filenameRunes):]...)
+	return trimmed
+}
+
+func mergeStatusStyle(base, accent tcell.Style) tcell.Style {
+	fg := accent.GetForeground()
+	if fg == tcell.ColorDefault {
+		fg = base.GetForeground()
+	}
+	return base.Foreground(fg).
+		Bold(accent.HasBold()).
+		Italic(accent.HasItalic()).
+		Underline(accent.HasUnderline())
+}
+
+func parseStatusCells(text []byte, baseStyle tcell.Style) []statusCell {
+	cells := make([]statusCell, 0, len(text))
+	style := baseStyle
+
+	for len(text) > 0 {
+		if text[0] == statusStyleMarker {
+			if end := bytes.IndexByte(text[1:], statusStyleMarker); end >= 0 {
+				styleName := string(text[1 : 1+end])
+				if styleName == "" {
+					style = baseStyle
+				} else if s, ok := config.GetColorschemeStyle(styleName); ok {
+					style = mergeStatusStyle(baseStyle, s)
+				} else {
+					style = baseStyle
+				}
+				text = text[end+2:]
+				continue
+			}
+		}
+
+		r, combc, size := util.DecodeCharacter(text)
+		cells = append(cells, statusCell{r: r, combc: combc, style: style})
+		text = text[size:]
+	}
+
+	return cells
+}
+
+func statusCellsWidth(cells []statusCell) int {
+	width := 0
+	for _, cell := range cells {
+		rw := runewidth.RuneWidth(cell.r)
+		if rw <= 0 {
+			rw = 1
+		}
+		width += rw
+	}
+	return width
 }
 
 // Display draws the statusline to the screen
@@ -249,37 +366,42 @@ func (s *StatusLine) Display() {
 		}
 	}
 
-	leftLen := util.StringWidth(leftText, util.CharacterCount(leftText), 1)
-	rightLen := util.StringWidth(rightText, util.CharacterCount(rightText), 1)
-	leftText = fitFilenameInStatusline(leftText, s.win.Buf.GetName(), s.win.Width-rightLen)
-	leftLen = util.StringWidth(leftText, util.CharacterCount(leftText), 1)
+	rightCells := parseStatusCells(rightText, statusLineStyle)
+	rightLen := statusCellsWidth(rightCells)
+	leftCells := parseStatusCells(leftText, statusLineStyle)
+	leftCells = fitFilenameInStatusline(leftCells, s.win.Buf.GetName(), s.win.Width-rightLen)
+	leftLen := statusCellsWidth(leftCells)
+	leftCellIdx := 0
+	rightCellIdx := 0
 
 	for x := 0; x < s.win.Width; x++ {
-		if x < leftLen {
-			r, combc, size := util.DecodeCharacter(leftText)
-			leftText = leftText[size:]
-			rw := runewidth.RuneWidth(r)
+		if x < leftLen && leftCellIdx < len(leftCells) {
+			cell := leftCells[leftCellIdx]
+			leftCellIdx++
+			rw := runewidth.RuneWidth(cell.r)
 			for j := 0; j < rw; j++ {
-				c := r
+				c := cell.r
+				combc := cell.combc
 				if j > 0 {
 					c = ' '
 					combc = nil
 					x++
 				}
-				screen.SetContent(winX+x, y, c, combc, statusLineStyle)
+				screen.SetContent(winX+x, y, c, combc, cell.style)
 			}
-		} else if x >= s.win.Width-rightLen && x < rightLen+s.win.Width-rightLen {
-			r, combc, size := util.DecodeCharacter(rightText)
-			rightText = rightText[size:]
-			rw := runewidth.RuneWidth(r)
+		} else if x >= s.win.Width-rightLen && rightCellIdx < len(rightCells) {
+			cell := rightCells[rightCellIdx]
+			rightCellIdx++
+			rw := runewidth.RuneWidth(cell.r)
 			for j := 0; j < rw; j++ {
-				c := r
+				c := cell.r
+				combc := cell.combc
 				if j > 0 {
 					c = ' '
 					combc = nil
 					x++
 				}
-				screen.SetContent(winX+x, y, c, combc, statusLineStyle)
+				screen.SetContent(winX+x, y, c, combc, cell.style)
 			}
 		} else {
 			screen.SetContent(winX+x, y, ' ', nil, statusLineStyle)

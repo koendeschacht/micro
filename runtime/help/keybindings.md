@@ -113,9 +113,10 @@ you could rebind `Ctrl-g` to `> help`:
 }
 ```
 
-Now when you press `Ctrl-g`, `help` will appear in the command bar and your
-cursor will be placed after it (note the space in the json that controls the
-cursor placement).
+Now when you press `Ctrl-g`, `help` will appear as the prompt label and the
+editable argument area will be focused. Editable commands can include
+`{cursor-word}`, which is replaced with the word under the cursor when the
+prompt opens.
 
 ## Binding Lua functions
 

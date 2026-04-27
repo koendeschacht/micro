@@ -83,16 +83,85 @@ func MakeCommand(name string, action func(bp *BufPane, args []string), completer
 	}
 }
 
+func cursorWord(h *BufPane) string {
+	if h == nil || h.Buf == nil {
+		return ""
+	}
+
+	c := h.Buf.GetActiveCursor()
+	line := h.Buf.Line(c.Y)
+	if len(line) == 0 {
+		return ""
+	}
+
+	pos := c.X
+	if pos >= len(line) {
+		pos = len(line) - 1
+	}
+	if pos < 0 {
+		return ""
+	}
+
+	if !isWordByte(line[pos]) && pos > 0 && isWordByte(line[pos-1]) {
+		pos--
+	}
+	if !isWordByte(line[pos]) {
+		return ""
+	}
+
+	start := pos
+	for start > 0 && isWordByte(line[start-1]) {
+		start--
+	}
+	end := pos + 1
+	for end < len(line) && isWordByte(line[end]) {
+		end++
+	}
+	return line[start:end]
+}
+
+func isWordByte(ch byte) bool {
+	return ch == '_' ||
+		(ch >= '0' && ch <= '9') ||
+		(ch >= 'A' && ch <= 'Z') ||
+		(ch >= 'a' && ch <= 'z')
+}
+
+func expandCommandEditPrompt(h *BufPane, prompt string) string {
+	return strings.ReplaceAll(prompt, "{cursor-word}", cursorWord(h))
+}
+
+func splitCommandEditPrompt(prompt string) (label string, editable string, commandPrefix string) {
+	if strings.TrimSpace(prompt) == "" {
+		return "> ", prompt, ""
+	}
+
+	idx := strings.IndexFunc(prompt, func(r rune) bool {
+		return r == ' ' || r == '\t'
+	})
+	if idx == -1 {
+		return "> ", prompt, ""
+	}
+
+	commandPrefix = prompt[:idx+1]
+	return "> " + strings.TrimRight(commandPrefix, " \t") + ": ", strings.TrimLeft(prompt[idx+1:], " \t"), commandPrefix
+}
+
 // CommandEditAction returns a bindable function that opens a prompt with
 // the given string and executes the command when the user presses
 // enter
 func CommandEditAction(prompt string) BufKeyAction {
 	return func(h *BufPane) bool {
-		InfoBar.Prompt("> ", prompt, "Command", nil, func(resp string, canceled bool) {
+		msg := expandCommandEditPrompt(h, prompt)
+		label, editable, commandPrefix := splitCommandEditPrompt(msg)
+		InfoBar.Prompt(label, editable, "Command", nil, func(resp string, canceled bool) {
 			if !canceled {
-				MainTab().CurPane().HandleCommand(resp)
+				MainTab().CurPane().HandleCommand(commandPrefix + resp)
 			}
 		})
+		if editable != "" {
+			InfoBar.SelectAll()
+		}
 		return false
 	}
 }
@@ -996,7 +1065,9 @@ func (h *BufPane) parseLineCol(args []string) (line int, col int, err error) {
 // SaveCmd saves the buffer optionally with an argument file name
 func (h *BufPane) SaveCmd(args []string) {
 	if len(args) == 0 {
-		h.Save()
+		h.SaveCB("Save", func() {
+			h.completeAction("Save")
+		})
 	} else {
 		h.saveBufToFile(args[0], "SaveAs", nil)
 	}
@@ -1004,7 +1075,9 @@ func (h *BufPane) SaveCmd(args []string) {
 
 // SaveAllCmd saves all modified buffers.
 func (h *BufPane) SaveAllCmd(args []string) {
-	h.SaveAll()
+	h.saveBuffersCB(modifiedBuffers(h.Buf), "Save", func() {
+		h.completeAction("Save")
+	})
 }
 
 // ReplaceCmd runs search and replace
