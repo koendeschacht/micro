@@ -93,6 +93,7 @@ type SharedBuffer struct {
 	CompletionValues            []string
 	CompletionSources           []string
 	CompletionEdits             [][]Delta
+	CompletionNoMainEdit        []bool
 	CurSuggestion               int
 	CompletionMenu              bool
 	CompletionStart             Loc
@@ -148,6 +149,7 @@ func (b *SharedBuffer) insert(pos Loc, value []byte) {
 	b.CompletionValues = nil
 	b.CompletionSources = nil
 	b.CompletionEdits = nil
+	b.CompletionNoMainEdit = nil
 	b.CompletionStart = Loc{}
 	b.CompletionEnd = Loc{}
 	b.GhostText = ""
@@ -168,6 +170,7 @@ func (b *SharedBuffer) remove(start, end Loc) []byte {
 	b.CompletionValues = nil
 	b.CompletionSources = nil
 	b.CompletionEdits = nil
+	b.CompletionNoMainEdit = nil
 	b.CompletionStart = Loc{}
 	b.CompletionEnd = Loc{}
 	b.GhostText = ""

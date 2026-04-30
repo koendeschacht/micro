@@ -34,6 +34,8 @@ type InfoBuf struct {
 	Msg    string
 	YNResp bool
 
+	Popup PopupState
+
 	// This map stores the history for all the different kinds of uses Prompt has
 	// It's a map of history type -> history array
 	History    map[string][]string
@@ -83,12 +85,13 @@ func (i *InfoBuf) beginPrompt(prompt string, msg string, ptype string, inputRows
 	i.PromptInputRows = inputRows
 	i.PromptBufferMode = bufferMode
 	i.PromptUseHistory = useHistory
-	i.Msg = prompt
-	i.MsgKind = MsgInfo
-	i.ExpiresAt = time.Time{}
-	i.HasPrompt = true
-	i.HasMessage, i.HasError, i.HasYN = false, false, false
-	i.HasGutter = false
+	i.setPopup(PopupState{
+		Kind:    PopupPrompt,
+		Source:  PopupSourceUser,
+		MsgKind: MsgInfo,
+		Text:    prompt,
+	})
+	i.HasYN = false
 	i.YNCallback = nil
 	i.PromptCallback = donecb
 	i.EventCallback = eventcb
@@ -109,6 +112,30 @@ const (
 	MsgError
 )
 
+type PopupKind int
+
+const (
+	PopupNone PopupKind = iota
+	PopupMessage
+	PopupPrompt
+)
+
+type PopupSource int
+
+const (
+	PopupSourceUser PopupSource = iota
+	PopupSourceCursor
+	PopupSourceDiagnostic
+)
+
+type PopupState struct {
+	Kind      PopupKind
+	Source    PopupSource
+	MsgKind   MsgKind
+	Text      string
+	ExpiresAt time.Time
+}
+
 var RootKeyMenuEntries func() []KeyMenuEntry
 
 func (i *InfoBuf) SetKeyMenu(entries []KeyMenuEntry) {
@@ -119,18 +146,39 @@ func (i *InfoBuf) ClearKeyMenu() {
 	i.KeyMenu = i.KeyMenu[:0]
 }
 
-func (i *InfoBuf) showTransientMessage(kind MsgKind, msg string) {
-	i.Msg = msg
-	i.MsgKind = kind
-	i.HasMessage, i.HasError = kind != MsgError, kind == MsgError
-	i.HasGutter = false
+func (i *InfoBuf) setPopup(p PopupState) {
+	i.Popup = p
+	i.Msg = p.Text
+	i.MsgKind = p.MsgKind
+	i.ExpiresAt = p.ExpiresAt
+	i.HasPrompt = p.Kind == PopupPrompt
+	i.HasMessage = p.Kind == PopupMessage && p.MsgKind != MsgError
+	i.HasError = p.Kind == PopupMessage && p.MsgKind == MsgError
+	i.HasGutter = p.Source == PopupSourceCursor || p.Source == PopupSourceDiagnostic
+}
+
+func (i *InfoBuf) clearPopup() {
+	i.setPopup(PopupState{MsgKind: MsgInfo})
+}
+
+func (i *InfoBuf) showMessage(kind MsgKind, source PopupSource, msg string, expiresAt time.Time) {
+	i.setPopup(PopupState{
+		Kind:      PopupMessage,
+		Source:    source,
+		MsgKind:   kind,
+		Text:      msg,
+		ExpiresAt: expiresAt,
+	})
+}
+
+func (i *InfoBuf) showTransientMessage(kind MsgKind, source PopupSource, msg string) {
 	duration := transientMessageDuration(kind)
+	expiresAt := time.Time{}
 	if duration > 0 {
-		i.ExpiresAt = time.Now().Add(duration)
+		expiresAt = time.Now().Add(duration)
 		time.AfterFunc(duration, screen.Redraw)
-	} else {
-		i.ExpiresAt = time.Time{}
 	}
+	i.showMessage(kind, source, msg, expiresAt)
 }
 
 func transientMessageDuration(kind MsgKind) time.Duration {
@@ -160,11 +208,14 @@ func (i *InfoBuf) ExpireMessage() {
 	if i.HasPrompt || !i.MessageExpired() {
 		return
 	}
-	i.Msg = ""
-	i.MsgKind = MsgInfo
-	i.HasMessage, i.HasError = false, false
-	i.HasGutter = false
-	i.ExpiresAt = time.Time{}
+	i.ClearMessage()
+}
+
+func (i *InfoBuf) ClearMessage() {
+	if i.HasPrompt {
+		return
+	}
+	i.clearPopup()
 }
 
 // NewBuffer returns a new infobuffer
@@ -188,27 +239,40 @@ func (i *InfoBuf) Message(msg ...any) {
 	// only display a new message if there isn't an active prompt
 	// this is to prevent overwriting an existing prompt to the user
 	if !i.HasPrompt {
-		i.showTransientMessage(MsgInfo, fmt.Sprint(msg...))
+		i.showTransientMessage(MsgInfo, PopupSourceUser, fmt.Sprint(msg...))
 	}
 }
 
 // Success sends a success message to the user.
 func (i *InfoBuf) Success(msg ...any) {
 	if !i.HasPrompt {
-		i.showTransientMessage(MsgSuccess, fmt.Sprint(msg...))
+		i.showTransientMessage(MsgSuccess, PopupSourceUser, fmt.Sprint(msg...))
 	}
 }
 
 // GutterMessage displays a message and marks it as a gutter message
 func (i *InfoBuf) GutterMessage(msg ...any) {
-	i.Message(msg...)
-	i.HasGutter = true
+	if !i.HasPrompt {
+		i.showTransientMessage(MsgInfo, PopupSourceCursor, fmt.Sprint(msg...))
+	}
+}
+
+func (i *InfoBuf) DiagnosticMessage(kind buffer.MsgType, msg ...any) {
+	if i.HasPrompt {
+		return
+	}
+
+	msgKind := MsgInfo
+	if kind == buffer.MTError {
+		msgKind = MsgError
+	}
+
+	i.showMessage(msgKind, PopupSourceDiagnostic, fmt.Sprint(msg...), time.Time{})
 }
 
 // ClearGutter clears the info bar and unmarks the message
 func (i *InfoBuf) ClearGutter() {
-	i.HasGutter = false
-	i.Message("")
+	i.ClearMessage()
 }
 
 // Error sends an error message to the user
@@ -216,7 +280,7 @@ func (i *InfoBuf) Error(msg ...any) {
 	// only display a new message if there isn't an active prompt
 	// this is to prevent overwriting an existing prompt to the user
 	if !i.HasPrompt {
-		i.showTransientMessage(MsgError, fmt.Sprint(msg...))
+		i.showTransientMessage(MsgError, PopupSourceUser, fmt.Sprint(msg...))
 	}
 	// TODO: add to log?
 }
@@ -241,16 +305,16 @@ func (i *InfoBuf) YNPrompt(prompt string, donecb func(bool, bool)) {
 		i.DonePrompt(true)
 	}
 
-	i.Msg = prompt
-	i.MsgKind = MsgInfo
-	i.ExpiresAt = time.Time{}
-	i.HasPrompt = true
+	i.setPopup(PopupState{
+		Kind:    PopupPrompt,
+		Source:  PopupSourceUser,
+		MsgKind: MsgInfo,
+		Text:    prompt,
+	})
 	i.HasYN = true
 	i.PromptInputRows = 1
 	i.PromptBufferMode = false
 	i.PromptUseHistory = false
-	i.HasMessage, i.HasError = false, false
-	i.HasGutter = false
 	i.PromptCallback = nil
 	i.EventCallback = nil
 	i.YNCallback = donecb
@@ -261,12 +325,11 @@ func (i *InfoBuf) DonePrompt(canceled bool) {
 	hadYN := i.HasYN
 	promptUseHistory := i.PromptUseHistory
 	resp := i.PromptText()
-	i.HasPrompt = false
 	i.HasYN = false
-	i.HasGutter = false
 	i.PromptInputRows = 1
 	i.PromptBufferMode = false
 	i.PromptUseHistory = false
+	i.clearPopup()
 	if !hadYN {
 		if i.PromptCallback != nil {
 			if canceled {
@@ -303,12 +366,8 @@ func (i *InfoBuf) DonePrompt(canceled bool) {
 
 // Reset resets the infobuffer's msg and info
 func (i *InfoBuf) Reset() {
-	i.Msg = ""
-	i.MsgKind = MsgInfo
-	i.ExpiresAt = time.Time{}
-	i.HasPrompt, i.HasMessage, i.HasError = false, false, false
+	i.clearPopup()
 	i.PromptInputRows = 1
 	i.PromptBufferMode = false
 	i.PromptUseHistory = false
-	i.HasGutter = false
 }

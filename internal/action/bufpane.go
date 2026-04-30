@@ -264,6 +264,9 @@ type BufPane struct {
 	jumpIndex      int
 	jumpNavigating bool
 
+	suppressGutterMessage     bool
+	suppressedGutterMessageAt buffer.Loc
+
 	autoCompleteToken      uint64
 	keySequenceToken       uint64
 	textObjectPreviewToken uint64
@@ -791,6 +794,21 @@ func (h *BufPane) completeAction(action string) {
 
 func (h *BufPane) updateCursorGutterMessage() {
 	c := h.Buf.GetActiveCursor()
+	if h.suppressGutterMessage {
+		if c.Loc == h.suppressedGutterMessageAt {
+			if InfoBar.HasGutter {
+				InfoBar.ClearGutter()
+			}
+			return
+		}
+		h.suppressGutterMessage = false
+	}
+
+	if m := buffer.CurrentDiagnosticMessage(h.Buf.Messages, c.Loc, h.Buf); m != nil {
+		InfoBar.DiagnosticMessage(m.Kind, m.Msg)
+		return
+	}
+
 	for _, m := range h.Buf.Messages {
 		if buffer.IsDiagnosticMessage(m) {
 			continue

@@ -30,6 +30,7 @@ type CompletionItem struct {
 	SortText   string
 	Preselect  bool
 	Deprecated bool
+	NoMainEdit bool
 }
 
 // CompletionProvider returns completion items for the current cursor location.
@@ -53,6 +54,7 @@ func (b *SharedBuffer) ClearAutocomplete() {
 	b.CompletionValues = nil
 	b.CompletionSources = nil
 	b.CompletionEdits = nil
+	b.CompletionNoMainEdit = nil
 	b.CurSuggestion = -1
 	b.HasSuggestions = false
 	b.CompletionMenu = false
@@ -149,12 +151,14 @@ func (b *SharedBuffer) setCompletionItems(items []CompletionItem) {
 	b.CompletionValues = make([]string, 0, len(items))
 	b.CompletionSources = make([]string, 0, len(items))
 	b.CompletionEdits = make([][]Delta, 0, len(items))
+	b.CompletionNoMainEdit = make([]bool, 0, len(items))
 	for _, item := range items {
 		b.Completions = append(b.Completions, item.Completion)
 		b.Suggestions = append(b.Suggestions, item.Suggestion)
 		b.CompletionValues = append(b.CompletionValues, firstNonEmpty(item.Insert, item.Suggestion))
 		b.CompletionSources = append(b.CompletionSources, item.Provider)
 		b.CompletionEdits = append(b.CompletionEdits, item.Edits)
+		b.CompletionNoMainEdit = append(b.CompletionNoMainEdit, item.NoMainEdit)
 	}
 }
 
@@ -296,12 +300,23 @@ func (b *Buffer) applyCompletionByIndex(idx int) {
 	if value == "" {
 		return
 	}
-	mainEdit := Delta{Text: []byte(value), Start: b.CompletionStart, End: b.CompletionEnd}
-	deltas := []Delta{mainEdit}
+	itemNoMainEdit := false
+	if idx >= 0 && idx < len(b.CompletionNoMainEdit) {
+		itemNoMainEdit = b.CompletionNoMainEdit[idx]
+	}
+	deltas := []Delta{}
+	end := b.GetActiveCursor().Loc
+	if !itemNoMainEdit {
+		mainEdit := Delta{Text: []byte(value), Start: b.CompletionStart, End: b.CompletionEnd}
+		deltas = append(deltas, mainEdit)
+		end = insertedTextEnd(mainEdit.Start, mainEdit.Text)
+	}
 	if edits := b.completionEditsAt(idx); len(edits) > 0 {
 		deltas = append(deltas, edits...)
 	}
-	end := insertedTextEnd(mainEdit.Start, mainEdit.Text)
+	if len(deltas) == 0 {
+		return
+	}
 	sortDeltasDescending(deltas)
 	b.MultipleReplace(deltas)
 	b.GetActiveCursor().ResetSelection()
@@ -374,6 +389,7 @@ func (b *Buffer) activeCompletionItems() []CompletionItem {
 			Insert:     insert,
 			Provider:   b.completionProviderAt(i),
 			Edits:      b.completionEditsAt(i),
+			NoMainEdit: i < len(b.CompletionNoMainEdit) && b.CompletionNoMainEdit[i],
 		})
 	}
 	return items
@@ -427,7 +443,7 @@ func (b *Buffer) displayCompletionItems(items []CompletionItem, start, end Loc, 
 
 	if len(items) == 1 && !b.HasTextRightOfCursor() && end == b.GetActiveCursor().Loc {
 		insert := firstNonEmpty(items[0].Insert, items[0].Suggestion)
-		if strings.HasPrefix(insert, prefix) {
+		if strings.HasPrefix(insert, prefix) && insert != prefix {
 			items[0].Completion = insert[len(prefix):]
 			return b.ShowGhostCompletion(items[0])
 		}
@@ -451,12 +467,15 @@ func (b *Buffer) DropProviderCompletions(provider string) bool {
 	return b.displayCompletionItems(items, b.CompletionStart, b.CompletionEnd, selectedKey)
 }
 
-func candidatePrefixScore(prefix, value, label string) int {
+func candidatePrefixScore(prefix, value, label string, hasEdits bool) int {
 	text := firstNonEmpty(value, label)
 	if prefix == "" {
 		return 0
 	}
 	if text == prefix {
+		if hasEdits {
+			return 900 + len(prefix)*20
+		}
 		return -100000
 	}
 	if strings.HasPrefix(text, prefix) {
@@ -484,7 +503,7 @@ func rankCompletionItems(prefix string, items []CompletionItem) []CompletionItem
 	ranked := make([]rankedItem, 0, len(items))
 	for _, item := range items {
 		insert := firstNonEmpty(item.Insert, item.Suggestion)
-		score := candidatePrefixScore(prefix, insert, item.Suggestion)
+		score := candidatePrefixScore(prefix, insert, item.Suggestion, len(item.Edits) > 0)
 		if score <= -100000 {
 			continue
 		}
@@ -533,6 +552,7 @@ type externalCompletionItem struct {
 	SortText   string                   `json:"sortText"`
 	Preselect  bool                     `json:"preselect"`
 	Deprecated bool                     `json:"deprecated"`
+	NoMainEdit bool                     `json:"noMainEdit"`
 }
 
 type externalCompletionEdit struct {
@@ -575,6 +595,7 @@ func (b *Buffer) ShowExternalCompletionsJSON(serialized string, startX, startY, 
 			SortText:   item.SortText,
 			Preselect:  item.Preselect,
 			Deprecated: item.Deprecated,
+			NoMainEdit: item.NoMainEdit,
 		})
 	}
 	if len(items) == 0 {
@@ -597,6 +618,48 @@ func (b *Buffer) ShowExternalCompletionsJSON(serialized string, startX, startY, 
 		return false
 	}
 	return b.displayCompletionItems(items, start, end, selectedKey)
+}
+
+// ShowExternalActionsJSON parses external action items and displays them in the
+// shared popup UI. Accepting an action applies only its edits, not its label.
+func (b *Buffer) ShowExternalActionsJSON(serialized string, x, y int) bool {
+	items := make([]CompletionItem, 0)
+	var externalItems []externalCompletionItem
+	if err := json.Unmarshal([]byte(serialized), &externalItems); err != nil {
+		return false
+	}
+	for _, item := range externalItems {
+		label := firstNonEmpty(item.Label, item.Insert)
+		if label == "" {
+			continue
+		}
+		edits := make([]Delta, 0, len(item.Edits))
+		for _, edit := range item.Edits {
+			edits = append(edits, Delta{
+				Text:  []byte(edit.Text),
+				Start: Loc{X: edit.Start.X, Y: edit.Start.Y},
+				End:   Loc{X: edit.End.X, Y: edit.End.Y},
+			})
+		}
+		if len(edits) == 0 {
+			continue
+		}
+		items = append(items, CompletionItem{
+			Completion: label,
+			Suggestion: label,
+			Insert:     label,
+			Provider:   completionProviderLSP,
+			Edits:      edits,
+			SortText:   item.SortText,
+			Preselect:  item.Preselect,
+			NoMainEdit: true,
+		})
+	}
+	if len(items) == 0 {
+		return false
+	}
+	loc := Loc{X: x, Y: y}
+	return b.ShowCompletionMenuAt(items, loc, loc, 0)
 }
 
 // StartCompletion resolves completion items and chooses between inline and menu modes.

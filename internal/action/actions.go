@@ -1992,6 +1992,12 @@ func (h *BufPane) ToggleOverwriteMode() bool {
 
 // Escape leaves current mode
 func (h *BufPane) Escape() bool {
+	if InfoBar.HasMessage || InfoBar.HasError || InfoBar.HasGutter {
+		h.suppressGutterMessage = true
+		h.suppressedGutterMessageAt = h.Buf.GetActiveCursor().Loc
+		InfoBar.ClearMessage()
+		return true
+	}
 	if h.Buf.CompletionMenu || h.Buf.HasGhostCompletion() {
 		h.Buf.ClearAutocomplete()
 		return true
@@ -2013,7 +2019,9 @@ func (h *BufPane) ClearInfo() bool {
 	if InfoBar.Msg == "" {
 		return false
 	}
-	InfoBar.Message("")
+	h.suppressGutterMessage = true
+	h.suppressedGutterMessageAt = h.Buf.GetActiveCursor().Loc
+	InfoBar.ClearMessage()
 	return true
 }
 

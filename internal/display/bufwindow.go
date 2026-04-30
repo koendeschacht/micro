@@ -1548,6 +1548,5 @@ func (w *BufWindow) Display() {
 	w.displayStatusLine()
 	w.displayScrollBar()
 	w.displayBuffer()
-	w.displayDiagnosticPopup()
 	w.displayCompletionPopup()
 }

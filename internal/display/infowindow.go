@@ -13,6 +13,8 @@ import (
 )
 
 const infoPopupMinWidth = 24
+const infoPopupMaxHeightRatio = 0.4
+const infoPopupMinContentRows = 4
 
 type popupRect struct {
 	X, Y           int
@@ -22,6 +24,16 @@ type popupRect struct {
 	MessageY       int
 	InputY         int
 	InputRows      int
+}
+
+type popupContent struct {
+	keyLayout    [][]info.KeyMenuEntry
+	messageLines []string
+	inputRows    int
+}
+
+func (c popupContent) rowCount() int {
+	return len(c.keyLayout) + len(c.messageLines) + c.inputRows
 }
 
 type InfoWindow struct {
@@ -100,38 +112,24 @@ func (i *InfoWindow) keyMenuKeyStyle() tcell.Style {
 	return i.mergePopupStyle(style.Foreground(accent).Bold(bold).Italic(italic).Underline(underline))
 }
 
-func (i *InfoWindow) successStyle() tcell.Style {
+func (i *InfoWindow) popupTextStyle() tcell.Style {
 	base := i.defStyle()
-	return colorschemeStyle("success-message", base.Foreground(tcell.ColorGreen).Bold(true))
-}
-
-func (i *InfoWindow) errStyle() tcell.Style {
-	base := i.defStyle()
-	return colorschemeStyle("error-message", base.Foreground(tcell.ColorWhite).Bold(true))
-}
-
-func (i *InfoWindow) promptStyle() tcell.Style {
-	base := i.defStyle()
-	if style, ok := config.Colorscheme["prompt-message"]; ok {
-		return style
+	switch {
+	case i.Popup.Kind == info.PopupPrompt:
+		if style, ok := config.Colorscheme["prompt-message"]; ok {
+			return style
+		}
+		if accent, ok := config.Colorscheme["statement"]; ok {
+			return base.Foreground(accent.GetForeground()).Bold(true)
+		}
+		return base.Foreground(tcell.ColorBlue).Bold(true)
+	case i.Popup.MsgKind == info.MsgSuccess:
+		return colorschemeStyle("success-message", base.Foreground(tcell.ColorGreen).Bold(true))
+	case i.Popup.MsgKind == info.MsgError:
+		return colorschemeStyle("error-message", base.Foreground(tcell.ColorWhite).Bold(true))
+	default:
+		return base
 	}
-	if accent, ok := config.Colorscheme["statement"]; ok {
-		return base.Foreground(accent.GetForeground()).Bold(true)
-	}
-	return base.Foreground(tcell.ColorBlue).Bold(true)
-}
-
-func (i *InfoWindow) currentMessageStyle() tcell.Style {
-	if i.HasError {
-		return i.errStyle()
-	}
-	if i.HasPrompt {
-		return i.promptStyle()
-	}
-	if i.MsgKind == info.MsgSuccess {
-		return i.successStyle()
-	}
-	return i.defStyle()
 }
 
 func (i *InfoWindow) popupBorderStyle() tcell.Style {
@@ -140,13 +138,13 @@ func (i *InfoWindow) popupBorderStyle() tcell.Style {
 	fallback := base.Foreground(tcell.ColorAqua).Bold(true)
 
 	switch {
-	case i.HasError:
-		name = "error-message-border"
-		fallback = base.Foreground(tcell.ColorRed).Bold(true)
-	case i.HasPrompt:
+	case i.Popup.Kind == info.PopupPrompt:
 		name = "prompt-message-border"
 		fallback = base.Foreground(tcell.ColorBlue).Bold(true)
-	case i.MsgKind == info.MsgSuccess:
+	case i.Popup.MsgKind == info.MsgError:
+		name = "error-message-border"
+		fallback = base.Foreground(tcell.ColorRed).Bold(true)
+	case i.Popup.MsgKind == info.MsgSuccess:
 		name = "success-message-border"
 		fallback = base.Foreground(tcell.ColorGreen).Bold(true)
 	}
@@ -158,16 +156,16 @@ func (i *InfoWindow) popupBorderStyle() tcell.Style {
 }
 
 func (i *InfoWindow) messagePrefix() string {
-	if i.HasError {
-		return colorschemeSymbol("error-message", "") + "  "
-	}
-	if i.HasPrompt {
+	switch {
+	case i.Popup.Kind == info.PopupPrompt:
 		return colorschemeSymbol("prompt-message", "") + "  "
-	}
-	if i.MsgKind == info.MsgSuccess {
+	case i.Popup.MsgKind == info.MsgError:
+		return colorschemeSymbol("error-message", "") + "  "
+	case i.Popup.MsgKind == info.MsgSuccess:
 		return colorschemeSymbol("success-message", "") + "  "
+	default:
+		return colorschemeSymbol("message", "") + "  "
 	}
-	return colorschemeSymbol("message", "") + "  "
 }
 
 func NewInfoWindow(b *info.InfoBuf) *InfoWindow {
@@ -226,7 +224,7 @@ func (i *InfoWindow) keyMenuEntries() []info.KeyMenuEntry {
 }
 
 func (i *InfoWindow) showKeyMenu() bool {
-	if i.HasPrompt || i.HasMessage || i.HasError {
+	if i.Popup.Kind != info.PopupNone {
 		return false
 	}
 	return config.GetGlobalOption("keymenu").(bool) || len(i.KeyMenu) > 0
@@ -247,20 +245,17 @@ func (i *InfoWindow) KeyMenuLineCount() int {
 }
 
 func (i *InfoWindow) messageLines(innerW int) []string {
-	if !i.HasPrompt && !i.HasMessage && !i.HasError {
+	if i.Popup.Kind == info.PopupNone {
 		return nil
 	}
-	if i.HasPrompt {
-		if i.Msg == "" {
-			return nil
-		}
-		return wrapTextToWidth(i.messagePrefix()+i.Msg, innerW)
+	if i.Popup.Kind == info.PopupPrompt && i.Popup.Text == "" {
+		return nil
 	}
-	return wrapTextToWidth(i.messagePrefix()+i.Msg, innerW)
+	return wrapTextToWidth(i.messagePrefix()+i.Popup.Text, innerW)
 }
 
 func (i *InfoWindow) inputRowCount() int {
-	if !i.HasPrompt || i.HasYN {
+	if i.Popup.Kind != info.PopupPrompt || i.HasYN {
 		return 0
 	}
 	if i.PromptInputRows > 1 {
@@ -278,9 +273,10 @@ func (i *InfoWindow) popupInnerWidth() int {
 		innerW = util.Max(innerW, keyMenuLayoutWidth(i.keyMenuLayout(maxInnerW)))
 	}
 
-	if i.HasPrompt {
-		if i.Msg != "" {
-			for _, line := range strings.Split(i.messagePrefix()+i.Msg, "\n") {
+	switch i.Popup.Kind {
+	case info.PopupPrompt:
+		if i.Popup.Text != "" {
+			for _, line := range strings.Split(i.messagePrefix()+i.Popup.Text, "\n") {
 				if line != "" {
 					innerW = util.Max(innerW, runewidth.StringWidth(line))
 				}
@@ -293,8 +289,8 @@ func (i *InfoWindow) popupInnerWidth() int {
 			}
 			innerW = util.Max(innerW, runewidth.StringWidth(line))
 		}
-	} else if i.HasMessage || i.HasError {
-		for _, line := range strings.Split(i.messagePrefix()+i.Msg, "\n") {
+	case info.PopupMessage:
+		for _, line := range strings.Split(i.messagePrefix()+i.Popup.Text, "\n") {
 			innerW = util.Max(innerW, runewidth.StringWidth(line))
 		}
 	}
@@ -307,13 +303,33 @@ func (i *InfoWindow) popupInnerWidth() int {
 }
 
 func (i *InfoWindow) showPopup() bool {
-	if i.HasPrompt {
+	if i.Popup.Kind == info.PopupPrompt {
 		return true
 	}
 	if !config.GlobalSettings["infobar"].(bool) {
 		return false
 	}
-	return i.showKeyMenu() || i.HasMessage || i.HasError
+	return i.showKeyMenu() || i.Popup.Kind == info.PopupMessage
+}
+
+func (i *InfoWindow) maxPopupContentRows() int {
+	availableRows := util.Max(1, i.Y-2)
+	heightCap := int(float64(i.Y) * infoPopupMaxHeightRatio)
+	heightCap = util.Max(infoPopupMinContentRows, heightCap)
+	return util.Min(availableRows, heightCap)
+}
+
+func trimPopupContent(c popupContent, maxRows int) popupContent {
+	for c.rowCount() > maxRows && len(c.keyLayout) > 0 {
+		c.keyLayout = c.keyLayout[1:]
+	}
+	for c.rowCount() > maxRows && len(c.messageLines) > 1 {
+		c.messageLines = c.messageLines[1:]
+	}
+	for c.rowCount() > maxRows && c.inputRows > 1 {
+		c.inputRows--
+	}
+	return c
 }
 
 func (i *InfoWindow) popupGeometry() (popupRect, [][]info.KeyMenuEntry, []string, bool) {
@@ -323,40 +339,28 @@ func (i *InfoWindow) popupGeometry() (popupRect, [][]info.KeyMenuEntry, []string
 	}
 
 	innerW := i.popupInnerWidth()
-	keyLayout := i.keyMenuLayout(innerW)
-	messageLines := i.messageLines(innerW)
-	inputRows := i.inputRowCount()
-	contentRows := len(keyLayout) + len(messageLines) + inputRows
-	maxContentRows := util.Max(1, i.Y-2)
+	content := popupContent{
+		keyLayout:    i.keyMenuLayout(innerW),
+		messageLines: i.messageLines(innerW),
+		inputRows:    i.inputRowCount(),
+	}
+	contentRows := content.rowCount()
+	maxContentRows := i.maxPopupContentRows()
 
 	if contentRows == 0 {
 		return popupRect{}, nil, nil, false
 	}
 
 	if contentRows > maxContentRows {
-		overflow := contentRows - maxContentRows
-		if overflow >= len(keyLayout) {
-			keyRows := len(keyLayout)
-			keyLayout = nil
-			overflow -= keyRows
-			if len(messageLines) == 0 {
-				messageLines = nil
-			} else if overflow > 0 && overflow < len(messageLines) {
-				messageLines = messageLines[overflow:]
-			} else if overflow >= len(messageLines) {
-				messageLines = messageLines[len(messageLines)-1:]
-			}
-		} else {
-			keyLayout = keyLayout[overflow:]
-		}
-		contentRows = len(keyLayout) + len(messageLines) + inputRows
+		content = trimPopupContent(content, maxContentRows)
+		contentRows = content.rowCount()
 	}
 
 	boxW := util.Min(i.Width, innerW+2)
-	messageY := i.Y - (contentRows + 1) + len(keyLayout)
+	messageY := i.Y - (contentRows + 1) + len(content.keyLayout)
 	inputY := -1
-	if inputRows > 0 {
-		inputY = messageY + len(messageLines)
+	if content.inputRows > 0 {
+		inputY = messageY + len(content.messageLines)
 	}
 	rect := popupRect{
 		X:         0,
@@ -369,9 +373,9 @@ func (i *InfoWindow) popupGeometry() (popupRect, [][]info.KeyMenuEntry, []string
 		InnerH:    contentRows,
 		MessageY:  messageY,
 		InputY:    inputY,
-		InputRows: inputRows,
+		InputRows: content.inputRows,
 	}
-	return rect, keyLayout, messageLines, true
+	return rect, content.keyLayout, content.messageLines, true
 }
 
 func (i *InfoWindow) PopupHeight() int {
@@ -668,7 +672,7 @@ func (i *InfoWindow) Display() {
 
 	baseStyle := i.popupStyle()
 	borderStyle := i.popupBorderStyle()
-	messageStyle := i.mergePopupStyle(i.currentMessageStyle())
+	messageStyle := i.mergePopupStyle(i.popupTextStyle())
 
 	i.drawPopupFrame(rect, baseStyle, borderStyle)
 

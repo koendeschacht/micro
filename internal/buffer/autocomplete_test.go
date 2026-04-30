@@ -144,6 +144,23 @@ func TestShowExternalCompletionsJSONFiltersExactAndCaseMismatchedItems(t *testin
 	assert.False(b.CompletionMenu)
 }
 
+func TestShowExternalCompletionsJSONKeepsExactItemsWithAdditionalEdits(t *testing.T) {
+	assert := assert.New(t)
+
+	b := NewBufferFromString("Path", "", BTDefault)
+	b.GetActiveCursor().GotoLoc(Loc{4, 0})
+
+	ok := b.ShowExternalCompletionsJSON(`[
+		{"insert":"Path","label":"Path - pathlib","additionalTextEdits":[{"text":"from pathlib import Path\n","start":{"x":0,"y":0},"end":{"x":0,"y":0}}],"sortText":"1","preselect":false,"deprecated":false},
+		{"insert":"Path","label":"Path - custom","additionalTextEdits":[{"text":"from app.paths import Path\n","start":{"x":0,"y":0},"end":{"x":0,"y":0}}],"sortText":"2","preselect":false,"deprecated":false}
+	]`, 0, 0, 4, 0)
+
+	assert.True(ok)
+	assert.False(b.HasGhostCompletion())
+	assert.True(b.CompletionMenu)
+	assert.Equal([]string{"Path - pathlib", "Path - custom"}, b.Suggestions)
+}
+
 func TestShowExternalCompletionsJSONMergesWithExistingPopupItems(t *testing.T) {
 	assert := assert.New(t)
 
@@ -292,6 +309,24 @@ func TestAcceptCompletionMenuAppliesAdditionalTextEdits(t *testing.T) {
 	assert.True(ok)
 	assert.Equal("import re\nprint(re)", string(b.Bytes()))
 	assert.Equal(Loc{8, 0}, b.GetActiveCursor().Loc)
+}
+
+func TestShowExternalActionsJSONAppliesOnlyActionEdits(t *testing.T) {
+	assert := assert.New(t)
+
+	b := NewBufferFromString("UnknownThing(1)", "", BTDefault)
+	b.GetActiveCursor().GotoLoc(Loc{0, 0})
+
+	ok := b.ShowExternalActionsJSON("[{\"label\":\"Generate function `UnknownThing`\",\"additionalTextEdits\":[{\"text\":\"def UnknownThing(x):\\n    pass\\n\\n\",\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":0,\"y\":0}}],\"sortText\":\"0\",\"preselect\":true}]", 0, 0)
+
+	assert.True(ok)
+	assert.True(b.CompletionMenu)
+	assert.Equal("Generate function `UnknownThing`", b.Suggestions[0])
+
+	ok = b.AcceptCompletionMenu()
+
+	assert.True(ok)
+	assert.Equal("def UnknownThing(x):\n    pass\n\nUnknownThing(1)", string(b.Bytes()))
 }
 
 func TestAcceptCompletionMenuMovesCursorToInsertedEnd(t *testing.T) {
