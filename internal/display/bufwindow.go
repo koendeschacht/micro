@@ -1406,8 +1406,9 @@ func (w *BufWindow) displayBuffer() {
 		if hasLineDecoration {
 			style = decorationStyle(style, lineDecoration)
 		}
+		preservebg := style.GetBackground() != config.DefStyle.GetBackground()
 		for _, c := range cursors {
-			if b.Settings["cursorline"].(bool) && w.active &&
+			if b.Settings["cursorline"].(bool) && w.active && !preservebg &&
 				!c.HasSelection() && c.Y == bloc.Y {
 				if s, ok := config.Colorscheme["cursor-line"]; ok {
 					fg := s.GetForeground()
@@ -1420,7 +1421,7 @@ func (w *BufWindow) displayBuffer() {
 		for i := vloc.X; i < maxWidth; i++ {
 			curStyle := style
 			if s, ok := config.Colorscheme["color-column"]; ok {
-				if colorcolumn != 0 && i-w.gutterOffset+w.StartCol == colorcolumn {
+				if colorcolumn != 0 && i-w.gutterOffset+w.StartCol == colorcolumn && !preservebg {
 					fg := s.GetForeground()
 					curStyle = style.Background(fg)
 				}
