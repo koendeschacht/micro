@@ -759,6 +759,12 @@ func wrapTextToWidth(text string, width int) []string {
 	return wrapped
 }
 
+// WrapTextToWidth wraps text at word boundaries using terminal display widths.
+// Explicit newlines are preserved, and long words are split when necessary.
+func WrapTextToWidth(text string, width int) []string {
+	return wrapTextToWidth(text, width)
+}
+
 func (w *BufWindow) currentDiagnosticMessage() *buffer.Message {
 	if !w.active {
 		return nil

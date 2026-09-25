@@ -110,6 +110,37 @@ func (w *BufWindow) IsVirtualRow(s SLoc) bool {
 	return section != "real"
 }
 
+// VirtualLineIDAtVisual returns the id of the virtual line displayed at the
+// given screen position, or an empty string when the position is a real buffer
+// row or outside the buffer view. This lets plugins attach interactions to
+// virtual lines without exposing the window's row-mapping implementation.
+func (w *BufWindow) VirtualLineIDAtVisual(x, y int) string {
+	w.updateDisplayInfo()
+	if x < w.X || x >= w.X+w.Width || y < w.Y || y >= w.Y+w.bufHeight {
+		return ""
+	}
+
+	offset := y - w.Y
+	sloc := w.Scroll(w.StartLine, offset)
+	if w.Diff(w.StartLine, sloc) != offset {
+		return ""
+	}
+	section, index := w.splitRow(sloc.Line, sloc.Row)
+	var lines []buffer.VirtualLine
+	switch section {
+	case "above":
+		lines = w.Buf.VirtualLines(sloc.Line, true)
+	case "below":
+		lines = w.Buf.VirtualLines(sloc.Line, false)
+	default:
+		return ""
+	}
+	if index < 0 || index >= len(lines) {
+		return ""
+	}
+	return lines[index].ID
+}
+
 func (w *BufWindow) getVLocFromLoc(loc buffer.Loc) VLoc {
 	vloc := VLoc{SLoc: SLoc{loc.Y, w.realRowOffset(loc.Y)}, VisualX: 0}
 

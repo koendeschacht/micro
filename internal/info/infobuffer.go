@@ -27,6 +27,7 @@ type InfoBuf struct {
 	PromptType       string
 	PromptInputRows  int
 	PromptBufferMode bool
+	PromptEditorMode bool
 	PromptUseHistory bool
 	MsgKind          MsgKind
 	ExpiresAt        time.Time
@@ -58,7 +59,7 @@ func (i *InfoBuf) PromptText() string {
 	return string(i.Buffer.Substr(i.Start(), i.End()))
 }
 
-func (i *InfoBuf) beginPrompt(prompt string, msg string, ptype string, inputRows int, useHistory bool, bufferMode bool, eventcb func(string), donecb func(string, bool)) {
+func (i *InfoBuf) beginPrompt(prompt string, msg string, ptype string, inputRows int, useHistory bool, bufferMode bool, editorMode bool, eventcb func(string), donecb func(string, bool)) {
 	if i.HasPrompt {
 		i.DonePrompt(true)
 	}
@@ -84,6 +85,7 @@ func (i *InfoBuf) beginPrompt(prompt string, msg string, ptype string, inputRows
 	i.PromptType = ptype
 	i.PromptInputRows = inputRows
 	i.PromptBufferMode = bufferMode
+	i.PromptEditorMode = editorMode
 	i.PromptUseHistory = useHistory
 	i.setPopup(PopupState{
 		Kind:    PopupPrompt,
@@ -290,12 +292,18 @@ func (i *InfoBuf) Error(msg ...any) {
 // The eventcb passes the current user response as the argument and donecb passes the user's message
 // and a boolean indicating if the prompt was canceled
 func (i *InfoBuf) Prompt(prompt string, msg string, ptype string, eventcb func(string), donecb func(string, bool)) {
-	i.beginPrompt(prompt, msg, ptype, 1, true, false, eventcb, donecb)
+	i.beginPrompt(prompt, msg, ptype, 1, true, false, false, eventcb, donecb)
 }
 
 // PromptBuffer starts a popup prompt backed by a multiline buffer.
 func (i *InfoBuf) PromptBuffer(prompt string, msg string, ptype string, inputRows int, eventcb func(string), donecb func(string, bool)) {
-	i.beginPrompt(prompt, msg, ptype, inputRows, false, true, eventcb, donecb)
+	i.beginPrompt(prompt, msg, ptype, inputRows, false, true, false, eventcb, donecb)
+}
+
+// PromptEditor starts a soft-wrapped multiline popup editor. Enter inserts a
+// newline and Ctrl-Enter submits the complete buffer.
+func (i *InfoBuf) PromptEditor(prompt string, msg string, ptype string, inputRows int, eventcb func(string), donecb func(string, bool)) {
+	i.beginPrompt(prompt, msg, ptype, inputRows, false, true, true, eventcb, donecb)
 }
 
 // YNPrompt creates a yes or no prompt, and the callback returns the yes/no result and whether
@@ -314,6 +322,7 @@ func (i *InfoBuf) YNPrompt(prompt string, donecb func(bool, bool)) {
 	i.HasYN = true
 	i.PromptInputRows = 1
 	i.PromptBufferMode = false
+	i.PromptEditorMode = false
 	i.PromptUseHistory = false
 	i.PromptCallback = nil
 	i.EventCallback = nil
@@ -328,6 +337,7 @@ func (i *InfoBuf) DonePrompt(canceled bool) {
 	i.HasYN = false
 	i.PromptInputRows = 1
 	i.PromptBufferMode = false
+	i.PromptEditorMode = false
 	i.PromptUseHistory = false
 	i.clearPopup()
 	if !hadYN {
@@ -369,5 +379,6 @@ func (i *InfoBuf) Reset() {
 	i.clearPopup()
 	i.PromptInputRows = 1
 	i.PromptBufferMode = false
+	i.PromptEditorMode = false
 	i.PromptUseHistory = false
 }

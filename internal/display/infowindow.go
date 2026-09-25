@@ -2,6 +2,7 @@ package display
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/gdamore/tcell/v3"
 	runewidth "github.com/mattn/go-runewidth"
@@ -30,6 +31,11 @@ type popupContent struct {
 	keyLayout    [][]info.KeyMenuEntry
 	messageLines []string
 	inputRows    int
+}
+
+type promptEditorRow struct {
+	line       int
+	start, end int
 }
 
 func (c popupContent) rowCount() int {
@@ -507,7 +513,139 @@ func (i *InfoWindow) displayBufferLine(rect popupRect, y int, lineIdx int, style
 	}
 }
 
+func promptEditorRows(b *buffer.Buffer, width int) []promptEditorRow {
+	width = util.Max(1, width)
+	rows := make([]promptEditorRow, 0, b.LinesNum())
+	const tabsize = 4
+
+	for lineIdx := 0; lineIdx < b.LinesNum(); lineIdx++ {
+		line := b.LineBytes(lineIdx)
+		if len(line) == 0 {
+			rows = append(rows, promptEditorRow{line: lineIdx})
+			continue
+		}
+
+		type editorChar struct {
+			r rune
+		}
+		chars := make([]editorChar, 0, len(line))
+		for len(line) > 0 {
+			r, _, size := util.DecodeCharacter(line)
+			chars = append(chars, editorChar{r: r})
+			line = line[size:]
+		}
+
+		for start := 0; start < len(chars); {
+			end := start
+			lastBreak := -1
+			visualWidth := 0
+			for end < len(chars) {
+				r := chars[end].r
+				runeWidth := runewidth.RuneWidth(r)
+				if r == '\t' {
+					runeWidth = tabsize - (visualWidth % tabsize)
+				}
+				if visualWidth > 0 && visualWidth+runeWidth > width {
+					break
+				}
+				visualWidth += util.Max(0, runeWidth)
+				end++
+				if unicode.IsSpace(r) {
+					lastBreak = end
+				}
+			}
+			if end < len(chars) && lastBreak > start {
+				end = lastBreak
+			}
+			rows = append(rows, promptEditorRow{line: lineIdx, start: start, end: end})
+			start = end
+		}
+	}
+
+	if len(rows) == 0 {
+		return []promptEditorRow{{}}
+	}
+	return rows
+}
+
+func promptEditorCursorRow(rows []promptEditorRow, cursor buffer.Loc) int {
+	for idx, row := range rows {
+		if row.line != cursor.Y || cursor.X < row.start || cursor.X > row.end {
+			continue
+		}
+		if cursor.X < row.end || idx+1 >= len(rows) || rows[idx+1].line != row.line {
+			return idx
+		}
+	}
+	return util.Max(0, len(rows)-1)
+}
+
+func (i *InfoWindow) displayPromptEditorRow(rect popupRect, y int, row promptEditorRow, style tcell.Style) {
+	line := util.SliceEnd(i.Buffer.LineBytes(row.line), row.start)
+	activeC := i.Buffer.GetActiveCursor()
+	charX := row.start
+	visualX := rect.InnerX
+	maxX := rect.InnerX + rect.InnerW
+	visualWidth := 0
+	const tabsize = 4
+
+	for len(line) > 0 && charX < row.end && visualX < maxX {
+		r, combc, size := util.DecodeCharacter(line)
+		line = line[size:]
+		drawStyle := style
+		bloc := buffer.Loc{X: charX, Y: row.line}
+		if activeC.HasSelection() &&
+			((bloc.GreaterEqual(activeC.CurSelection[0]) && bloc.LessThan(activeC.CurSelection[1])) ||
+				(bloc.LessThan(activeC.CurSelection[0]) && bloc.GreaterEqual(activeC.CurSelection[1]))) {
+			drawStyle = i.mergePopupStyle(i.defStyle().Reverse(true))
+			if s, ok := config.Colorscheme["selection"]; ok {
+				drawStyle = s
+			}
+		}
+
+		if activeC.Y == row.line && activeC.X == charX {
+			screen.ShowCursor(visualX, y)
+		}
+
+		width := runewidth.RuneWidth(r)
+		if r == '\t' {
+			width = tabsize - (visualWidth % tabsize)
+			for j := 0; j < width && visualX < maxX; j++ {
+				screen.SetContent(visualX, y, ' ', nil, drawStyle)
+				visualX++
+			}
+		} else {
+			screen.SetContent(visualX, y, r, combc, drawStyle)
+			visualX += util.Max(0, width)
+		}
+		visualWidth += util.Max(0, width)
+		charX++
+	}
+
+	if activeC.Y == row.line && activeC.X == row.end && visualX < maxX {
+		screen.ShowCursor(visualX, y)
+	}
+}
+
 func (i *InfoWindow) displayBuffer(rect popupRect, style tcell.Style) {
+	if i.PromptEditorMode {
+		rows := promptEditorRows(i.Buffer, rect.InnerW)
+		cursorRow := promptEditorCursorRow(rows, i.Buffer.GetActiveCursor().Loc)
+		startRow := util.Max(0, cursorRow-rect.InputRows+1)
+		for displayRow := 0; displayRow < rect.InputRows; displayRow++ {
+			y := rect.InputY + displayRow
+			drawPopupLines(rect.InnerX, y, rect.InnerW, 0, []string{""},
+				func(int) tcell.Style { return i.popupStyle() },
+				func(int) tcell.Style { return style },
+			)
+			rowIdx := startRow + displayRow
+			if rowIdx < len(rows) {
+				i.displayPromptEditorRow(rect, y, rows[rowIdx], style)
+			}
+		}
+		return
+	}
+
 	for row := 0; row < rect.InputRows; row++ {
 		y := rect.InputY + row
 		drawPopupLines(rect.InnerX, y, rect.InnerW, 0, []string{""},

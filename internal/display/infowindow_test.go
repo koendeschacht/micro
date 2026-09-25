@@ -42,3 +42,32 @@ func TestBufWindowReservesInfoPopupHeightAboveStatusline(t *testing.T) {
 	assert.Equal(t, 20, w.bufHeight)
 	assert.Equal(t, 24, w.Height)
 }
+
+func TestPromptEditorRowsWrapAndKeepExplicitLines(t *testing.T) {
+	b := buffer.NewBufferFromString("abcdef\n\nxy", "", buffer.BTDefault)
+	rows := promptEditorRows(b, 4)
+
+	assert.Equal(t, []promptEditorRow{
+		{line: 0, start: 0, end: 4},
+		{line: 0, start: 4, end: 6},
+		{line: 1, start: 0, end: 0},
+		{line: 2, start: 0, end: 2},
+	}, rows)
+	assert.Equal(t, 1, promptEditorCursorRow(rows, buffer.Loc{X: 4, Y: 0}))
+}
+
+func TestPromptEditorRowsAccountForWideRunes(t *testing.T) {
+	b := buffer.NewBufferFromString("ab😊c", "", buffer.BTDefault)
+	assert.Equal(t, []promptEditorRow{
+		{line: 0, start: 0, end: 3},
+		{line: 0, start: 3, end: 4},
+	}, promptEditorRows(b, 4))
+}
+
+func TestPromptEditorRowsPreferWordBoundaries(t *testing.T) {
+	b := buffer.NewBufferFromString("one two", "", buffer.BTDefault)
+	assert.Equal(t, []promptEditorRow{
+		{line: 0, start: 0, end: 4},
+		{line: 0, start: 4, end: 7},
+	}, promptEditorRows(b, 5))
+}

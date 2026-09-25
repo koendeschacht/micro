@@ -40,3 +40,23 @@ func TestVirtualLinesAffectSLocScrollAndLocMapping(t *testing.T) {
 	assert.Equal(buffer.Loc{X: 0, Y: 1}, w.LocFromVLoc(VLoc{SLoc: SLoc{Line: 1, Row: 1}, VisualX: 0}))
 	assert.Equal(buffer.Loc{X: 4, Y: 1}, w.LocFromVLoc(VLoc{SLoc: SLoc{Line: 1, Row: 3}, VisualX: 0}))
 }
+
+func TestVirtualLineIDAtVisual(t *testing.T) {
+	assert := assert.New(t)
+
+	b := buffer.NewBufferFromString("alpha\nbeta", "", buffer.BTDefault)
+	b.SetOptionNative("softwrap", false)
+	assert.True(b.SetVirtualLinesJSON("comments", `[
+		{"id":"above","line":1,"above":true,"text":"review header"},
+		{"id":"below","line":1,"above":false,"text":"review body"}
+	]`, 1))
+
+	w := NewBufWindow(3, 2, 80, 20, b)
+	assert.Equal("", w.VirtualLineIDAtVisual(3, 2))
+	assert.Equal("above", w.VirtualLineIDAtVisual(3, 3))
+	assert.Equal("", w.VirtualLineIDAtVisual(3, 4))
+	assert.Equal("below", w.VirtualLineIDAtVisual(3, 5))
+	assert.Equal("", w.VirtualLineIDAtVisual(3, 6))
+	assert.Equal("", w.VirtualLineIDAtVisual(2, 3))
+	assert.Equal("", w.VirtualLineIDAtVisual(3, 22))
+}

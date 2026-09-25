@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v3"
@@ -51,6 +52,9 @@ func luaImportMicro() *lua.LTable {
 	ulua.L.SetField(pkg, "InfoBar", luar.New(ulua.L, action.GetInfoBar))
 	ulua.L.SetField(pkg, "Log", luar.New(ulua.L, log.Println))
 	ulua.L.SetField(pkg, "SetStatusInfoFn", luar.New(ulua.L, display.SetStatusInfoFnLua))
+	ulua.L.SetField(pkg, "WrapText", luar.New(ulua.L, func(text string, width int) string {
+		return strings.Join(display.WrapTextToWidth(text, width), "\n")
+	}))
 	ulua.L.SetField(pkg, "CurPane", luar.New(ulua.L, func() *action.BufPane {
 		return action.MainTab().CurPane()
 	}))

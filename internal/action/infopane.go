@@ -180,6 +180,10 @@ func (h *InfoPane) PromptBuffer(prompt string, msg string, ptype string, inputRo
 	h.InfoBuf.PromptBuffer(prompt, msg, ptype, inputRows, eventcb, donecb)
 }
 
+func (h *InfoPane) PromptEditor(prompt string, msg string, ptype string, inputRows int, eventcb func(string), donecb func(string, bool)) {
+	h.InfoBuf.PromptEditor(prompt, msg, ptype, inputRows, eventcb, donecb)
+}
+
 func (h *InfoPane) pluginCB(cb string, args ...any) bool {
 	largs := []lua.LValue{luar.New(ulua.L, h)}
 	for _, a := range args {
@@ -234,6 +238,10 @@ func (h *InfoPane) DoPromptBufferKeyEvent(e *tcell.EventKey, ke KeyEvent) bool {
 
 	switch e.Key() {
 	case tcell.KeyEnter:
+		if h.PromptEditorMode && e.Modifiers()&tcell.ModCtrl != 0 {
+			h.DonePrompt(false)
+			return true
+		}
 		return h.execPromptBufferAction("InsertNewline")
 	case tcell.KeyTab:
 		return h.execPromptBufferAction("InsertTab")

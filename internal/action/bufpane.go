@@ -418,6 +418,16 @@ func (h *BufPane) SetSidePaneJSON(serialized string, version int) bool {
 	return bw.SetSidePaneJSON(serialized, version)
 }
 
+// VirtualLineIDAtVisual returns the id of a virtual line at a screen position.
+// It is primarily exposed for Lua plugins that render interactive virtual rows.
+func (h *BufPane) VirtualLineIDAtVisual(x, y int) string {
+	bw, ok := h.BWindow.(*display.BufWindow)
+	if !ok {
+		return ""
+	}
+	return bw.VirtualLineIDAtVisual(x, y)
+}
+
 // PluginCB calls all plugin callbacks with a certain name and displays an
 // error if there is one and returns the aggregate boolean response.
 // The bufpane is passed as the first argument to the callbacks,
