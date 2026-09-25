@@ -48,15 +48,22 @@ func TestVirtualLineIDAtVisual(t *testing.T) {
 	b.SetOptionNative("softwrap", false)
 	assert.True(b.SetVirtualLinesJSON("comments", `[
 		{"id":"above","line":1,"above":true,"text":"review header"},
+		{"id":"above-2","line":1,"above":true,"text":"another header"},
 		{"id":"below","line":1,"above":false,"text":"review body"}
 	]`, 1))
 
 	w := NewBufWindow(3, 2, 80, 20, b)
 	assert.Equal("", w.VirtualLineIDAtVisual(3, 2))
 	assert.Equal("above", w.VirtualLineIDAtVisual(3, 3))
-	assert.Equal("", w.VirtualLineIDAtVisual(3, 4))
-	assert.Equal("below", w.VirtualLineIDAtVisual(3, 5))
-	assert.Equal("", w.VirtualLineIDAtVisual(3, 6))
+	assert.Equal("above-2", w.VirtualLineIDAtVisual(3, 4))
+	assert.Equal("", w.VirtualLineIDAtVisual(3, 5))
+	assert.Equal("below", w.VirtualLineIDAtVisual(3, 6))
+	assert.Equal("", w.VirtualLineIDAtVisual(3, 7))
 	assert.Equal("", w.VirtualLineIDAtVisual(2, 3))
 	assert.Equal("", w.VirtualLineIDAtVisual(3, 22))
+
+	w.StartLine = SLoc{Line: 1, Row: 1}
+	assert.Equal("above-2", w.VirtualLineIDAtVisual(3, 2))
+	assert.Equal("", w.VirtualLineIDAtVisual(3, 3))
+	assert.Equal("below", w.VirtualLineIDAtVisual(3, 4))
 }

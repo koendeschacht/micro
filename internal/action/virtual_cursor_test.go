@@ -6,7 +6,26 @@ import (
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/display"
 	"github.com/stretchr/testify/assert"
+	lua "github.com/yuin/gopher-lua"
+	luar "layeh.com/gopher-luar"
 )
+
+func TestVirtualLineIDAtVisualAvailableToLua(t *testing.T) {
+	b := buffer.NewBufferFromString("zero\none", "", buffer.BTDefault)
+	b.SetOptionNative("softwrap", false)
+	assert.True(t, b.SetVirtualLinesJSON("test", `[
+		{"id":"comment-1","line":1,"above":true,"text":"comment"}
+	]`, 1))
+
+	w := display.NewBufWindow(0, 0, 80, 24, b)
+	h := NewBufPane(b, w, nil)
+	l := lua.NewState()
+	defer l.Close()
+	l.SetGlobal("pane", luar.New(l, h))
+
+	assert.NoError(t, l.DoString(`result = pane:VirtualLineIDAtVisual(0, 1)`))
+	assert.Equal(t, lua.LString("comment-1"), l.GetGlobal("result"))
+}
 
 func TestMoveCursorUpSkipsVirtualLinesAbove(t *testing.T) {
 	b := buffer.NewBufferFromString("zero\none\ntwo", "", buffer.BTDefault)

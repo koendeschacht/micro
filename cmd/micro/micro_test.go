@@ -11,8 +11,10 @@ import (
 	"github.com/micro-editor/micro/v2/internal/action"
 	"github.com/micro-editor/micro/v2/internal/buffer"
 	"github.com/micro-editor/micro/v2/internal/config"
+	ulua "github.com/micro-editor/micro/v2/internal/lua"
 	"github.com/micro-editor/micro/v2/internal/screen"
 	"github.com/stretchr/testify/assert"
+	lua "github.com/yuin/gopher-lua"
 )
 
 var tempDir string
@@ -20,6 +22,12 @@ var sim screen.SimulationScreen
 
 func init() {
 	screen.Events = make(chan tcell.Event, 8)
+}
+
+func TestWrapTextAvailableToLua(t *testing.T) {
+	ulua.L.SetGlobal("micro", luaImportMicro())
+	assert.NoError(t, ulua.L.DoString(`wrapped = micro.WrapText("short and long", 10)`))
+	assert.Equal(t, lua.LString("short and\nlong"), ulua.L.GetGlobal("wrapped"))
 }
 
 func startup(args []string) (screen.SimulationScreen, error) {
