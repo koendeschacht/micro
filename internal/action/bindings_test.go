@@ -106,6 +106,38 @@ func TestFindEventSupportsCtrlBackspaceBindings(t *testing.T) {
 	assert.Equal(t, keyEvent(tcell.NewEventKey(tcell.KeyBackspace, "", tcell.ModCtrl)), event)
 }
 
+func TestCtrlHAndBackspaceDispatchSeparateBindings(t *testing.T) {
+	tree := NewKeyTree()
+	var dispatched string
+	for _, binding := range []string{"Ctrl-h", "Backspace"} {
+		event, err := findEvent(binding)
+		require.NoError(t, err)
+		tree.RegisterKeyBinding(event, func(Pane) bool {
+			dispatched = binding
+			return true
+		})
+	}
+
+	for _, test := range []struct {
+		name    string
+		input   *tcell.EventKey
+		binding string
+	}{
+		{"Kitty Ctrl-H", tcell.NewEventKey(tcell.KeyRune, "h", tcell.ModCtrl), "Ctrl-h"},
+		{"Backspace", tcell.NewEventKey(tcell.KeyBackspace, "", tcell.ModNone), "Backspace"},
+		{"Legacy Backspace", tcell.NewEventKey(tcell.KeyRune, "\b", tcell.ModNone), "Backspace"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dispatched = ""
+			action, more := tree.NextEvent(tree.NewCursor(), keyEvent(test.input), nil)
+			require.NotNil(t, action)
+			assert.False(t, more)
+			assert.True(t, action(nil))
+			assert.Equal(t, test.binding, dispatched)
+		})
+	}
+}
+
 func TestFindEventSupportsCtrlUnderscoreBindings(t *testing.T) {
 	event, err := findEvent("CtrlUnderscore")
 	require.NoError(t, err)

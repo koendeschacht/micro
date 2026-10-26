@@ -110,6 +110,8 @@ func legacyCtrlRune(key tcell.Key) (rune, bool) {
 		return 'f', true
 	case tcell.KeyCtrlG:
 		return 'g', true
+	case tcell.KeyCtrlH:
+		return 'h', true
 	case tcell.KeyCtrlI:
 		return 'i', true
 	case tcell.KeyCtrlJ:
